@@ -66,6 +66,32 @@ and a seeded batch is reproducible.
 
 ---
 
+## M1.5 — Tokenizer study  (CS336 Lec 1)
+Compare bytes-only against byte-level BPE and choose the tokenizer to **freeze** before
+any architecture experiment. The model-quality arm depends on M3/M4, so this milestone
+*executes after the CPU gate* but is numbered here because it fixes an input the recipe
+grid holds constant. TinyShakespeare/CPU is plumbing; the real decision is on FineWeb-Edu.
+
+- [x] Efficient BPE trainer: regex pre-tokenization + frequency-weighted unique chunks
+- [x] `tokenizer.py`: `utilization`, `segment`, `piece_repr`
+- [x] `scripts/tokenizer_study.py`: bytes + BPE at 1K/4K/8K/16K
+- [x] Report: compression, fertility, utilization, train time, encode speed, qualitative
+      segmentation
+- [x] Equal-budget model quality in bits/byte (`--with-model`); decision metric
+- [ ] Run on FineWeb-Edu at M6 and **freeze** the winner (`--freeze data/tokenizer.json`)
+- [x] tests: utilization/segment, intrinsic metrics, tiling, equal-budget model path
+
+**Done when:** the study runs end to end and, on the real corpus, a single tokenizer is
+frozen and hashed for all later experiments. (Intrinsic + CPU model arm validated on
+TinyShakespeare; freeze happens at M6.)
+
+**Decision metric:** lowest equal-budget bits/byte (tokenizer-independent). Compression,
+fertility, and utilization are informative but not decisive. "Equal budget" = same model
+and same token budget; a denser tokenizer therefore sees more underlying text per token,
+which is a real advantage, not a confound.
+
+---
+
 ## M3 — Transformer and training loop  (CS336 Lec 2-4, Assignment 1c) — CORE
 - [ ] `model.py`: decoder-only pre-norm Transformer; RoPE, RMSNorm, SwiGLU, QK-norm,
       weight tying, z-loss
@@ -122,7 +148,7 @@ hours/cost, proposed exact 15M/40M/100M configs, unresolved decisions).
 ---
 
 ## M6 — Experimental protocol  (before any GPU spend)
-- [ ] Freeze the real-study tokenizer (vocab ~16,384) on a bounded sample; record its hash
+- [ ] Run M1.5 tokenizer study on FineWeb-Edu; freeze the winner (vocab ~16,384) + hash
 - [ ] Local FineWeb-Edu-format ingestion proven on a small shard, then the streaming adapter
 - [ ] `configs/scales/{s,m,l}.yaml` = exact 15M/40M/100M configs; hold constants per DESIGN
 - [ ] Derive per-size `max_iters` from `D/N = 20`; verify FLOP-matched budgets

@@ -18,11 +18,20 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
 BYTE_VOCAB = 256
 DEFAULT_SPECIALS = ("<|endoftext|>",)
+
+# GPT-2-style pre-tokenization. Merges are learned and applied within these chunks,
+# so a merge never spans a word boundary. The trailing ``|.`` (with DOTALL) guarantees
+# every character matches some branch, so the chunks always tile the input exactly.
+SPLIT_PATTERN = re.compile(
+    r"""'(?:[sdmt]|ll|ve|re)| ?[^\W\d_]+| ?\d+| ?[^\s\w]+|\s+(?!\S)|\s+|.""",
+    re.DOTALL,
+)
 
 
 def _count_pairs(ids: list[int], counts: dict[tuple[int, int], int] | None = None):
@@ -93,14 +102,24 @@ class Tokenizer:
             )
         num_merges = vocab_size - BYTE_VOCAB - reserved
 
-        sample = text.encode("utf-8")
+        sample = text
         if max_bytes is not None:
-            sample = sample[:max_bytes]
-        ids = list(sample)
+            sample = text.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore")
+
+        # Pre-tokenize into chunks and count unique chunk frequencies. BPE then runs over
+        # the (small) set of unique chunks weighted by frequency -- far faster than
+        # scanning the whole byte stream once per merge.
+        words: dict[tuple[int, ...], int] = {}
+        for chunk in SPLIT_PATTERN.findall(sample):
+            key = tuple(chunk.encode("utf-8"))
+            words[key] = words.get(key, 0) + 1
 
         merges: dict[tuple[int, int], int] = {}
         for i in range(num_merges):
-            counts = _count_pairs(ids)
+            counts: dict[tuple[int, int], int] = {}
+            for seq, freq in words.items():
+                for pair in zip(seq, seq[1:]):
+                    counts[pair] = counts.get(pair, 0) + freq
             if not counts:
                 break
             max_count = max(counts.values())
@@ -108,7 +127,11 @@ class Tokenizer:
             best = min(p for p, c in counts.items() if c == max_count)
             new_id = BYTE_VOCAB + i
             merges[best] = new_id
-            ids = _merge(ids, best, new_id)
+            new_words: dict[tuple[int, ...], int] = {}
+            for seq, freq in words.items():
+                merged = tuple(_merge(list(seq), best, new_id))
+                new_words[merged] = new_words.get(merged, 0) + freq
+            words = new_words
 
         tok = cls(merges, mode="bpe")
         # assign special ids above the learned BPE vocabulary
@@ -138,12 +161,11 @@ class Tokenizer:
     # ------------------------------------------------------------------ #
     # encode / decode
     # ------------------------------------------------------------------ #
-    def encode_bytes(self, data: bytes) -> list[int]:
-        ids = list(data)
+    def _encode_ids(self, ids: list[int]) -> list[int]:
+        """Greedily apply merges (lowest rank first) to a list of ids."""
         if not self._ranks:
             return ids
         while len(ids) >= 2:
-            # find the mergeable pair with the lowest rank present
             best_pair = None
             best_rank = None
             for pair in zip(ids, ids[1:]):
@@ -156,9 +178,16 @@ class Tokenizer:
             ids = _merge(ids, best_pair, self.merges[best_pair])
         return ids
 
+    def encode_bytes(self, data: bytes) -> list[int]:
+        """Encode raw bytes as one stream (no pre-tokenization). Lossless round-trip."""
+        return self._encode_ids(list(data))
+
     def encode_ordinary(self, text: str) -> list[int]:
-        """Encode text with no special-token handling."""
-        return self.encode_bytes(text.encode("utf-8"))
+        """Encode text with no special-token handling, pre-tokenizing into chunks."""
+        ids: list[int] = []
+        for chunk in SPLIT_PATTERN.findall(text):
+            ids.extend(self._encode_ids(list(chunk.encode("utf-8"))))
+        return ids
 
     def encode(self, text: str, allowed_special: str | set[str] = "none") -> list[int]:
         if allowed_special == "all":
@@ -206,6 +235,25 @@ class Tokenizer:
             "fertility": n_tokens / n_words,           # tokens per word
             "compression": n_bytes / max(1, n_tokens), # bytes per token
         }
+
+    def utilization(self, text: str) -> float:
+        """Fraction of the vocabulary that actually appears when encoding ``text``."""
+        used = set(self.encode_ordinary(text))
+        return len(used) / self.vocab_size
+
+    def piece_repr(self, token_id: int) -> str:
+        """Human-readable form of a single token's bytes (hex-escaped if not UTF-8)."""
+        if token_id in self._special_inv:
+            return self._special_inv[token_id]
+        b = self.vocab[token_id]
+        try:
+            return b.decode("utf-8")
+        except UnicodeDecodeError:
+            return "".join(f"\\x{c:02x}" for c in b)
+
+    def segment(self, text: str) -> list[str]:
+        """Return the decoded piece for each token, for qualitative inspection."""
+        return [self.piece_repr(i) for i in self.encode_ordinary(text)]
 
     # ------------------------------------------------------------------ #
     # persistence

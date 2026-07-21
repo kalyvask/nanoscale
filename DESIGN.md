@@ -223,6 +223,32 @@ rest of the baseline. Grouping matters because the interventions do different jo
 - All comparisons at the **fixed token budget**; report fixed-budget loss, not best-ever
   checkpoint.
 
+## 6.5 Tokenizer study (M1.5)
+
+Before the architecture experiments, one tokenizer is chosen and frozen. We compare a
+bytes-only tokenizer against byte-level BPE at vocab 1K / 4K / 8K / 16K on one corpus.
+
+**Tokenizer training** uses GPT-2-style regex pre-tokenization, then learns merges over
+the set of *unique chunks weighted by frequency* (not the raw byte stream), which is the
+standard efficient BPE and keeps merges from crossing word boundaries. The training
+sample is bounded (`max_bytes`) so we never scan the whole corpus.
+
+**Reported per tokenizer:**
+- compression (bytes/token), fertility (tokens/word), vocabulary utilization (fraction of
+  the vocab used on held-out text)
+- tokenizer training time and encoding speed (bytes/sec)
+- qualitative segmentations of sample strings
+- **equal-budget model quality in bits/byte** — the deciding metric
+
+**Why bits/byte decides.** It is tokenizer-independent, so models trained on different
+tokenizers compare fairly. "Equal budget" means the same architecture trained for the
+same token budget; note a denser tokenizer then sees more underlying text per token,
+which is a genuine advantage of compression, not a confound. Compression/fertility/util
+are informative but not decisive on their own.
+
+The winning tokenizer is frozen and hashed; every architecture run records that hash, so
+the tokenizer is provably held constant across the transfer study.
+
 ## 7. Experiment methodology
 
 **Controlled variables held constant across sizes:** tokenizer (frozen), corpus mixture,
