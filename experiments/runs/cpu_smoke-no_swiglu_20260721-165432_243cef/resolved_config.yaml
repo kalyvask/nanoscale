@@ -1,41 +1,35 @@
-# ~1M-param plumbing config: proves the pipeline on CPU in minutes.
-# Numbers here are smoke-test output, never research findings.
-name: cpu_smoke
-group: smoke
+name: cpu_smoke-no_swiglu
+group: ablation
 seed: 1337
-
-vocab_size: 257        # bytes fallback tokenizer: 256 bytes + <|endoftext|>
+vocab_size: 257
 block_size: 128
 n_layer: 5
 n_head: 4
 n_embd: 128
 dropout: 0.0
 bias: false
-
 pos: rope
 norm: rms
-activation: swiglu
+activation: gelu
 qk_norm: true
-z_loss: 1.0e-4
+z_loss: 0.0001
 tie_weights: true
 attention_backend: sdpa
-
 tokens_per_param: 20
 batch_size: 16
 grad_accum: 1
-max_steps: 200         # fixed tiny budget for the smoke run
+max_steps: 100
 warmup_frac: 0.1
-lr: 1.0e-3
+lr: 0.001
 min_lr_frac: 0.1
 weight_decay: 0.1
 grad_clip: 1.0
 eval_interval: 50
 eval_iters: 50
-
 dataset: tinyshakespeare
 data_dir: null
 tokenizer_path: null
 device: auto
 dtype: auto
 compile: false
-save_checkpoint: true
+save_checkpoint: false

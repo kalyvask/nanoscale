@@ -38,3 +38,4 @@ tokenizer_path: null
 device: auto
 dtype: auto
 compile: false
+save_checkpoint: false

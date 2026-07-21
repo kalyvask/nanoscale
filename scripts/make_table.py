@@ -80,11 +80,11 @@ def main() -> None:
     bar = "=" * 78
     print(bar)
     if all_smoke:
-        print("SMOKE-TEST PLUMBING (TinyShakespeare, CPU) — NOT RESEARCH FINDINGS")
+        print("SMOKE-TEST PLUMBING (TinyShakespeare, CPU) -- NOT RESEARCH FINDINGS")
     else:
         print("ABLATION RESULTS")
     print(bar)
-    header = f"{'variant':22} {'val_loss':>9} {'Δ vs base':>10} {'bpb':>7} {'max_logit':>10} {'tok/s':>9} {'params':>10}"
+    header = f"{'variant':22} {'val_loss':>9} {'d vs base':>10} {'bpb':>7} {'max_logit':>10} {'tok/s':>9} {'params':>10}"
 
     def fmt(r):
         s = r["s"]
@@ -112,7 +112,7 @@ def main() -> None:
         for r in group_rows:
             print(fmt(r))
     print(bar)
-    print("Δ vs base: change in fixed-budget val loss when the component is turned off.")
+    print("d vs base: change in fixed-budget val loss when the component is turned off.")
     print("One-at-a-time flips measure conditional effects, not independent contributions.")
 
 

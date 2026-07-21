@@ -90,6 +90,22 @@ def test_non_finite_loss_is_recorded_as_failed(tmp_path, prepared, monkeypatch):
     assert "non-finite" in summary["failure_reason"]
 
 
+def test_checkpoint_saved_when_requested(tmp_path, prepared):
+    data_dir, _ = prepared
+    exp = tmp_path / "experiments"
+    summary = train(_cfg(save_checkpoint=True, max_steps=10), base_dir=exp, data_dir=data_dir)
+    ckpt = exp / "runs" / summary["run_id"] / "checkpoint.pt"
+    assert ckpt.exists()
+    loaded = torch.load(ckpt, map_location="cpu", weights_only=False)
+    assert "model" in loaded and "config" in loaded
+
+
+def test_vocab_smaller_than_data_is_rejected(tmp_path, prepared):
+    data_dir, _ = prepared  # bytes tokenizer -> data vocab 257
+    with pytest.raises(ValueError, match="smaller than the prepared"):
+        train(_cfg(vocab_size=256), base_dir=tmp_path / "exp", data_dir=data_dir)
+
+
 def test_lr_schedule_warmup_and_decay():
     cfg = _cfg(lr=1e-2, min_lr_frac=0.1, warmup_frac=0.1, max_steps=100)
     assert lr_at(0, cfg, 100) < cfg.lr           # warmup starts low

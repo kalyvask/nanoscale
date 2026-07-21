@@ -92,6 +92,14 @@ def train(cfg: Config, base_dir: str | Path = "experiments",
     val_data = load_split(data_dir, "val")
     meta = load_meta(data_dir)
 
+    data_vocab = meta.get("vocab_size")
+    if data_vocab is not None and cfg.vocab_size < data_vocab:
+        raise ValueError(
+            f"config vocab_size ({cfg.vocab_size}) is smaller than the prepared "
+            f"data's vocab ({data_vocab}); token ids would exceed the embedding. "
+            f"Set vocab_size >= {data_vocab}."
+        )
+
     from nanoscale.model import GPT  # local import keeps torch optional elsewhere
 
     model = GPT(cfg).to(device)
@@ -173,6 +181,11 @@ def train(cfg: Config, base_dir: str | Path = "experiments",
             max(cfg.eval_iters, 50), device, seed=cfg.seed + 1,
         )
         bpb = bits_per_byte(final_val, meta.get("compression_val", 1.0))
+        if cfg.save_checkpoint:
+            torch.save(
+                {"model": model.state_dict(), "config": cfg.to_dict()},
+                rec.dir / "checkpoint.pt",
+            )
         peak_mem = (
             int(torch.cuda.max_memory_allocated()) if device == "cuda" else None
         )

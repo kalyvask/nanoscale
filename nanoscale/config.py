@@ -75,6 +75,7 @@ class Config:
     device: str = "auto"
     dtype: str = "auto"
     compile: bool = False
+    save_checkpoint: bool = False
 
     # ------------------------------------------------------------------ #
     # validation
