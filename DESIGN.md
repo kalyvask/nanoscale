@@ -334,10 +334,25 @@ Reference-vs-SDPA agreement, causal-masking leakage, exact parameter accounting 
 toggles, tokenizer round-trips and determinism, document-split leakage, overfit-one-batch,
 and same-seed CPU reproducibility are all required. No test downloads external data.
 
-## 14. Open decisions requiring approval before GPU spend
+## 14. Resolved decisions (locked 2026-07-21)
 
-1. Final corpus shard(s) and total token budget for the real study.
-2. Confirm `D/N = 20` (or set otherwise) and the exact 15M/40M/100M layer/width configs.
-3. Whether the 300M XL confirmation tier is in budget.
-4. Systems depth: accounting + `torch.compile` + MFU only (default), or add the Triton
-   stretch goal afterward.
+1. **Budget basis:** `D/N = 20` with **N = total parameters** (Chinchilla convention).
+   Noted trade-off: at ~15M the embedding table is ~37% of N, so small models spend a
+   larger share of their budget on the embedding; accepted for convention-compatibility.
+2. **Size tiers:** S ~15M, M ~40M, L ~100M (no XL for now). ~36 GPU-h core (~1.5
+   GPU-days, ~$54 on A100). Seeds: S 3, M 3, L 2, plus interaction checks (2 x 3 at S,M).
+3. **Systems depth:** resource accounting + `torch.compile` + SDPA + tokens/sec + MFU +
+   peak memory. No custom Triton kernel in the core (remains a labeled stretch goal).
+4. **Corpus:** FineWeb-Edu. Freeze one byte-level BPE tokenizer (vocab 16,384) on a
+   bounded sample. AI-deployment corpus deferred as possible held-out transfer later.
+
+### Approved starting geometries (vocab 16,384, block 512, head_dim 64)
+
+| size | n_layer | n_embd | n_head | total | non-emb | tokens (D=20N) |
+|---|---|---|---|---|---|---|
+| S ~15M | 6 | 384 | 6 | 16.9M | 10.6M | 338M |
+| M ~40M | 8 | 512 | 8 | 33.3M | 24.9M | 666M |
+| L ~100M | 12 | 768 | 12 | 97.5M | 85.0M | 1.95B |
+
+M sits at ~33M; bump to `n_layer=10, n_embd=576` for ~49M if a wider size spread is
+wanted. These are the M6 defaults, adjustable before the GPU gate.
