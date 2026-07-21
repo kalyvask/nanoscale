@@ -1,0 +1,22 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# nanoscale artifacts
+experiments/*.bin
+experiments/*.json
+experiments/manifest.jsonl
+data/
+checkpoints/
+*.pt
+
+# os / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
