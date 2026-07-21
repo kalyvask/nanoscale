@@ -1,0 +1,40 @@
+# Full-stack baseline recipe for the real study (all modern components on).
+# Size overrides for S/M/L live in configs/scales/ (added at the protocol milestone).
+name: base
+group: ablation
+seed: 1337
+
+vocab_size: 16384
+block_size: 512
+n_layer: 6
+n_head: 8
+n_embd: 512
+dropout: 0.0
+bias: false
+
+pos: rope
+norm: rms
+activation: swiglu
+qk_norm: true
+z_loss: 1.0e-4
+tie_weights: true
+attention_backend: sdpa
+
+tokens_per_param: 20     # D/N, held constant across sizes
+batch_size: 32
+grad_accum: 1
+max_steps: null          # derived from tokens_per_param * n_params
+warmup_frac: 0.05
+lr: 3.0e-4
+min_lr_frac: 0.1
+weight_decay: 0.1
+grad_clip: 1.0
+eval_interval: 250
+eval_iters: 100
+
+dataset: fineweb_edu
+data_dir: null
+tokenizer_path: null
+device: auto
+dtype: auto
+compile: false
