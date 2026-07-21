@@ -127,6 +127,9 @@ def prepare(
     train_ids = encode_documents(train_docs, tokenizer)
     val_ids = encode_documents(val_docs, tokenizer)
 
+    n_bytes_train = sum(len(d.encode("utf-8")) for d in train_docs)
+    n_bytes_val = sum(len(d.encode("utf-8")) for d in val_docs)
+
     train_ids.tofile(out_dir / "train.bin")
     val_ids.tofile(out_dir / "val.bin")
 
@@ -143,6 +146,9 @@ def prepare(
         "n_docs_val": len(val_docs),
         "n_tokens_train": int(train_ids.size),
         "n_tokens_val": int(val_ids.size),
+        "n_bytes_train": n_bytes_train,
+        "n_bytes_val": n_bytes_val,
+        "compression_val": n_bytes_val / max(1, int(val_ids.size)),
     }
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return meta
