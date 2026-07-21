@@ -6,6 +6,11 @@ before any large run. Phases map to CS336 lectures/assignments.
 
 Legend: `[ ]` todo, `[~]` in progress, `[x]` done.
 
+**Progress (2026-07-21):** M0-M5 built and the CPU acceptance gate passed. 130 tests
+green; ~1M-param model trains on TinyShakespeare (val loss 5.49 -> 2.06), generates
+text, and the 7-config ablation grid runs on CPU. Next: M6 experimental protocol,
+then the GPU spending gate. No GPU runs yet.
+
 Local commit checkpoints (no push yet):
 1. `docs: define proxy-validity study`
 2. `build: scaffold configuration and experiment records`
