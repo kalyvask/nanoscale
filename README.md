@@ -65,4 +65,53 @@ Built for Stanford CS336 (Language Modeling from Scratch). TinyShakespeare on CP
 - Design and methodology: [DESIGN.md](DESIGN.md)
 - Milestones, protocol, and the GPU spending gate: [ROADMAP.md](ROADMAP.md)
 
-Status: building M0-M4 and the CPU ablation harness. No GPU runs yet.
+## What is built
+
+Everything from scratch, no training framework:
+
+- `tokenizer.py`: byte-level BPE with regex pre-tokenization and frequency-weighted
+  merges over unique chunks; deterministic tie-breaking; special tokens; bounded
+  training sample; save/load with a content hash
+- `data.py`: TXT/JSONL ingest; document-level train/val split before concatenation so no
+  document straddles the boundary; uint16 memmap storage; dataset and tokenizer hashes
+- `model.py`: decoder-only pre-norm Transformer; RoPE or learned positions; RMSNorm or
+  LayerNorm; SwiGLU or GeLU (parameter-matched); QK-norm; weight tying; z-loss;
+  `reference` and `sdpa` attention paths that agree numerically
+- `train.py`: AdamW, warmup plus cosine, gradient clipping, CPU fp32 or CUDA bf16,
+  reproducible seeding, fixed-budget validation loss, fail-loud NaN handling
+- `experiments.py`: one authoritative directory per run (resolved config, environment,
+  streamed metrics, summary) with a manifest index
+- `config.py`: frozen validated config; analytical parameter and FLOP accounting that
+  matches the built module across all 64 toggle combinations
+
+140 tests, including exact parameter accounting, causal-masking leakage, reference
+versus SDPA agreement, tokenizer round-trips, document-split leakage, overfit-one-batch,
+and same-seed determinism.
+
+## Quickstart (CPU, minutes)
+
+```bash
+pip install -e ".[dev]"
+python scripts/prepare_data.py --dataset tinyshakespeare
+python -m nanoscale.train --config configs/cpu_smoke.yaml
+python scripts/generate.py --prompt "ROMEO:"
+python scripts/run_ablation.py --config configs/cpu_smoke.yaml --max_steps 100
+python scripts/make_table.py
+```
+
+Tokenizer study (M1.5):
+
+```bash
+python scripts/tokenizer_study.py --dataset tinyshakespeare --with-model --vocab-sizes 1024,4096,8192,16384
+```
+
+## Status
+
+M0 through M5 built and the CPU acceptance gate passed. A 977K-parameter model trains on
+TinyShakespeare (validation loss 5.49 to 2.06), generates text, and the seven-config
+ablation grid runs end to end. Those numbers are plumbing checks, not findings, and the
+table says so.
+
+Next: M6 experimental protocol (FineWeb-Edu adapter, freeze the tokenizer, scale configs,
+transfer-analysis code), then the GPU spending gate. No GPU runs yet. Estimated core
+study cost is about 36 GPU-hours.
