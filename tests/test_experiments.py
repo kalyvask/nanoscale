@@ -25,7 +25,11 @@ def test_run_directory_scaffold(tmp_path):
     summary = read_summary(d)
     assert summary["status"] == "running"
     assert summary["n_params"] == rec.config.n_params()
-    assert summary["flops_per_token"] == rec.config.flops_per_token()
+    assert summary["estimated_flops_per_token"] == rec.config.estimated_flops_per_token()
+    # identity fields are present on every record, even outside a study
+    for key in ("study_id", "scale_id", "recipe_id", "init_seed", "data_seed",
+                "protocol_hash", "eval_set_hash", "measured_tflops"):
+        assert key in summary
 
 
 def test_log_metrics_appends(tmp_path):

@@ -35,7 +35,12 @@ class Config:
     # --- identity ---
     name: str = "base"
     group: str | None = None
-    seed: int = 1337
+    seed: int = 1337               # legacy/default; init_seed and data_seed resolve from it
+    study_id: str | None = None    # identifies a whole study (protocol + corpus + grid)
+    scale_id: str | None = None    # "S" | "M" | "L"
+    recipe_id: str | None = None   # "baseline" | "no_rope" | ...
+    init_seed: int | None = None   # model init + dropout
+    data_seed: int | None = None   # training stream order (shared across scales)
 
     # --- model ---
     vocab_size: int = 16384
@@ -56,7 +61,8 @@ class Config:
     attention_backend: str = "sdpa"  # reference | sdpa
 
     # --- controlled training budget ---
-    tokens_per_param: float = 20.0   # D/N
+    tokens_per_param: float = 20.0   # D/N, used only when target_train_tokens is unset
+    target_train_tokens: int | None = None  # set per scale from the BASELINE geometry
     batch_size: int = 32
     grad_accum: int = 1
     max_steps: int | None = None     # if set, overrides the derived budget
@@ -76,6 +82,8 @@ class Config:
     dtype: str = "auto"
     compile: bool = False
     save_checkpoint: bool = False
+    checkpoint_every: int = 0      # steps between resumable checkpoints (0 = off)
+    eval_seed: int = 12345         # fixed: frozen eval set must not track training seeds
 
     # ------------------------------------------------------------------ #
     # validation
@@ -109,6 +117,10 @@ class Config:
             raise ValueError(f"tokens_per_param must be > 0; got {self.tokens_per_param}")
         if self.max_steps is not None and self.max_steps <= 0:
             raise ValueError(f"max_steps must be > 0 when set; got {self.max_steps}")
+        if self.target_train_tokens is not None and self.target_train_tokens <= 0:
+            raise ValueError(
+                f"target_train_tokens must be > 0 when set; got {self.target_train_tokens}"
+            )
 
     def _check_positive(self) -> None:
         positive_ints = {
@@ -204,16 +216,31 @@ class Config:
             return d
         return 2 * d if self.bias else d
 
-    def flops_per_token(self) -> int:
-        """Approximate training FLOPs per token (forward + backward).
+    def estimated_flops_per_token(self) -> int:
+        """Estimated training FLOPs per token (forward + backward).
 
-        6 * N for the parameter matmuls plus a sequence-dependent attention term
-        ~ 12 * n_layer * n_embd * block_size. This is an estimate and is logged as
-        such, not a precise hardware count.
+        Three terms:
+
+        * ``6 * N_non_embedding`` for the transformer-block matmuls.
+        * ``6 * n_embd * vocab_size`` for the **output projection**. This is a real
+          matmul performed for every token and costs the same whether or not the
+          weights are tied to the input embedding; tying saves memory, not compute.
+          (The input embedding is a gather, so it contributes no matmul FLOPs.)
+        * a sequence-dependent attention term ``12 * n_layer * n_embd * block_size``.
+
+        This is an **estimate** from parameter counts, never a hardware measurement.
+        Measured throughput is recorded separately (tokens/sec, measured_tflops) and
+        the two must not be conflated: small models badly underutilize large GPUs, so
+        this estimate is optimistic exactly where the model is small.
         """
-        n = self.n_params_non_embedding()
+        blocks = 6 * self.n_params_non_embedding()
+        output_proj = 6 * self.n_embd * self.vocab_size
         attn = 12 * self.n_layer * self.n_embd * self.block_size
-        return 6 * n + attn
+        return blocks + output_proj + attn
+
+    # kept as a deprecated alias so older call sites keep working
+    def flops_per_token(self) -> int:
+        return self.estimated_flops_per_token()
 
     # ------------------------------------------------------------------ #
     # training budget
@@ -222,6 +249,16 @@ class Config:
         return self.batch_size * self.grad_accum * self.block_size
 
     def total_tokens(self) -> int:
+        """Token budget for this run.
+
+        When ``target_train_tokens`` is set (the study path) it wins outright. That
+        matters: deriving the budget from this run's own ``n_params()`` would hand
+        extra training data to exactly the recipes that add parameters (learned
+        positions, untied embeddings), confounding capacity with data. The study sets
+        one target per scale from the BASELINE geometry and applies it to every recipe.
+        """
+        if self.target_train_tokens is not None:
+            return int(self.target_train_tokens)
         return int(self.tokens_per_param * self.n_params())
 
     def derived_max_steps(self) -> int:
@@ -231,10 +268,33 @@ class Config:
         return max(1, int(steps))
 
     # ------------------------------------------------------------------ #
+    # resolved identity
+    # ------------------------------------------------------------------ #
+    @property
+    def resolved_init_seed(self) -> int:
+        return self.seed if self.init_seed is None else self.init_seed
+
+    @property
+    def resolved_data_seed(self) -> int:
+        return self.seed if self.data_seed is None else self.data_seed
+
+    # ------------------------------------------------------------------ #
     # serialization and overrides
     # ------------------------------------------------------------------ #
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
+
+    # Fields that define the protocol: everything that must be held constant across
+    # the study for cross-scale comparisons to mean anything. Deliberately excludes
+    # per-run identity (seeds, names, ids) and per-scale geometry.
+    PROTOCOL_FIELDS = (
+        "vocab_size", "block_size", "tokens_per_param", "batch_size", "grad_accum",
+        "warmup_frac", "lr", "min_lr_frac", "weight_decay", "grad_clip",
+        "dropout", "bias", "dataset", "tokenizer_path", "eval_iters",
+    )
+
+    def protocol_fields(self) -> dict[str, Any]:
+        return {k: getattr(self, k) for k in self.PROTOCOL_FIELDS}
 
     def override(self, **kwargs: Any) -> "Config":
         unknown = set(kwargs) - {f.name for f in dataclasses.fields(self)}

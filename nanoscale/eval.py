@@ -24,13 +24,37 @@ def estimate_loss(
     device: str,
     seed: int = 0,
 ) -> float:
-    """Average cross-entropy over ``iters`` random batches (seeded, deterministic)."""
+    """Average cross-entropy over ``iters`` random batches (seeded, deterministic).
+
+    Legacy path for smoke runs. The study uses :func:`evaluate_frozen`, which scores
+    every run on identical examples.
+    """
     was_training = model.training
     model.eval()
     rng = np.random.default_rng(seed)
     losses = []
     for _ in range(iters):
         x, y = sample_batch(data, block_size, batch_size, rng)
+        xt = torch.from_numpy(x).to(device)
+        yt = torch.from_numpy(y).to(device)
+        _, loss = model(xt, yt)
+        losses.append(loss.item())
+    if was_training:
+        model.train()
+    return float(np.mean(losses))
+
+
+@torch.no_grad()
+def evaluate_frozen(model, eval_set, device: str) -> float:
+    """Score the model on a fixed, seed-independent set of examples.
+
+    Every run in the study is evaluated on exactly these blocks, so differences in
+    reported loss cannot come from having drawn an easier evaluation sample.
+    """
+    was_training = model.training
+    model.eval()
+    losses = []
+    for x, y in eval_set.batches():
         xt = torch.from_numpy(x).to(device)
         yt = torch.from_numpy(y).to(device)
         _, loss = model(xt, yt)

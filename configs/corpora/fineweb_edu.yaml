@@ -1,0 +1,18 @@
+# FineWeb-Edu, pinned.
+#
+# `revision` MUST be an immutable commit sha from
+# https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu/commits/main
+# The loader refuses "main" on purpose: an unpinned dataset can change under the
+# study and silently make runs incomparable.
+#
+# `shards` fixes both WHICH files are read and (after sorting) the order they are
+# read in, so the packed token stream is reproducible.
+name: fineweb_edu
+kind: hf
+repo_id: HuggingFaceFW/fineweb-edu
+config_name: sample-10BT
+split: train
+text_field: text
+revision: null        # <-- PIN BEFORE USE (commit sha), study will refuse to run otherwise
+shards: []            # <-- list explicit parquet paths, e.g. sample/10BT/000_00000.parquet
+max_documents: null

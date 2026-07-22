@@ -141,9 +141,17 @@ class RunRecord:
             "device": None,
             "torch": env.get("torch"),
             "cuda": env.get("cuda"),
+            "study_id": config.study_id,
+            "scale_id": config.scale_id,
+            "recipe_id": config.recipe_id,
+            "init_seed": config.resolved_init_seed,
+            "data_seed": config.resolved_data_seed,
+            "protocol_hash": None,
+            "eval_set_hash": None,
             "n_params": config.n_params(),
             "n_params_non_embedding": config.n_params_non_embedding(),
-            "flops_per_token": config.flops_per_token(),
+            "estimated_flops_per_token": config.estimated_flops_per_token(),
+            "measured_tflops": None,
             "planned_tokens": config.total_tokens(),
             "planned_steps": config.derived_max_steps(),
             "dataset_hash": None,
@@ -181,9 +189,12 @@ class RunRecord:
         self._write_summary()
 
     def _write_summary(self) -> None:
-        (self.dir / "summary.json").write_text(
-            json.dumps(self._summary, indent=2), encoding="utf-8"
-        )
+        # atomic: a crash mid-write must not leave a truncated summary that later
+        # looks like a valid record
+        target = self.dir / "summary.json"
+        tmp = target.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(self._summary, indent=2), encoding="utf-8")
+        tmp.replace(target)
 
     def _append_manifest(self) -> None:
         index = {
@@ -192,13 +203,22 @@ class RunRecord:
             "status": self._summary["status"],
             "group": self._summary.get("group"),
             "name": self.config.name,
+            "study_id": self._summary.get("study_id"),
+            "scale_id": self._summary.get("scale_id"),
+            "recipe_id": self._summary.get("recipe_id"),
+            "init_seed": self._summary.get("init_seed"),
+            "data_seed": self._summary.get("data_seed"),
+            "protocol_hash": self._summary.get("protocol_hash"),
+            "eval_set_hash": self._summary.get("eval_set_hash"),
             "n_params": self._summary.get("n_params"),
             "final_val_loss": self._summary.get("final_val_loss"),
             "bits_per_byte": self._summary.get("bits_per_byte"),
             "timestamp": self._summary.get("timestamp"),
         }
+        # append-with-flush so a concurrent reader never sees a partial line
         with open(self._manifest_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(index) + "\n")
+            f.flush()
 
     def finish(self, **fields: Any) -> None:
         self._summary.update(fields)
@@ -245,3 +265,20 @@ def read_manifest(base_dir: str | Path = "experiments") -> list[dict[str, Any]]:
 
 def read_summary(run_dir: str | Path) -> dict[str, Any]:
     return json.loads((Path(run_dir) / "summary.json").read_text(encoding="utf-8"))
+
+
+def run_identity(summary: dict[str, Any]) -> tuple:
+    """Key uniquely identifying a study run, used to skip already-completed work."""
+    return (
+        summary.get("study_id"), summary.get("scale_id"), summary.get("recipe_id"),
+        summary.get("init_seed"), summary.get("data_seed"),
+    )
+
+
+def completed_identities(base_dir: str | Path = "experiments") -> set[tuple]:
+    """Identities of runs already completed, for resumability."""
+    return {
+        run_identity(row)
+        for row in read_manifest(base_dir)
+        if row.get("status") == "completed"
+    }

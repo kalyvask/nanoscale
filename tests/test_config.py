@@ -90,8 +90,45 @@ def test_derived_budget():
 def test_flops_positive_and_scales_with_layers():
     small = Config(n_layer=2)
     big = Config(n_layer=8)
-    assert small.flops_per_token() > 0
-    assert big.flops_per_token() > small.flops_per_token()
+    assert small.estimated_flops_per_token() > 0
+    assert big.estimated_flops_per_token() > small.estimated_flops_per_token()
+
+
+def test_flops_include_output_projection_regardless_of_tying():
+    """Tying saves memory, not compute: the d x V matmul runs either way."""
+    tied = Config(tie_weights=True)
+    untied = Config(tie_weights=False)
+    assert tied.estimated_flops_per_token() == untied.estimated_flops_per_token()
+    # and the output projection is actually counted
+    expected_head = 6 * tied.n_embd * tied.vocab_size
+    blocks = 6 * tied.n_params_non_embedding()
+    attn = 12 * tied.n_layer * tied.n_embd * tied.block_size
+    assert tied.estimated_flops_per_token() == blocks + expected_head + attn
+    # a bigger vocabulary costs more compute even with tying on
+    big_vocab = Config(tie_weights=True, vocab_size=32768)
+    assert big_vocab.estimated_flops_per_token() > tied.estimated_flops_per_token()
+
+
+def test_target_train_tokens_overrides_derived_budget():
+    cfg = Config(target_train_tokens=1_000_000, batch_size=8, block_size=128)
+    assert cfg.total_tokens() == 1_000_000
+    assert cfg.derived_max_steps() == 1_000_000 // cfg.tokens_per_step()
+    with pytest.raises(ValueError, match="target_train_tokens"):
+        Config(target_train_tokens=0)
+
+
+def test_resolved_seeds_fall_back_to_seed():
+    cfg = Config(seed=7)
+    assert cfg.resolved_init_seed == 7 and cfg.resolved_data_seed == 7
+    cfg2 = Config(seed=7, init_seed=11, data_seed=13)
+    assert cfg2.resolved_init_seed == 11 and cfg2.resolved_data_seed == 13
+
+
+def test_protocol_fields_exclude_per_run_identity():
+    fields = Config().protocol_fields()
+    for leaked in ("seed", "init_seed", "data_seed", "name", "scale_id", "recipe_id",
+                   "n_layer", "n_embd"):
+        assert leaked not in fields
 
 
 def test_yaml_round_trip(tmp_path):

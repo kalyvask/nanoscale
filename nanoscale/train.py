@@ -1,9 +1,16 @@
 """Training loop.
 
-AdamW with linear warmup then cosine decay, gradient clipping, CPU fp32 / CUDA bf16
-autocast, reproducible seeding, and fail-loud NaN/Inf handling. Every run writes a
-full record (see :mod:`nanoscale.experiments`) and reports the loss at a predeclared
-fixed token budget, not the best-looking checkpoint.
+Protocol-relevant behaviour:
+
+* the token budget comes from ``config.total_tokens()``, which the study fixes per
+  scale from the baseline geometry, so every recipe at a scale trains on the same data
+* training consumes a deterministic packed stream ordered by ``data_seed``, shared
+  across scales so budgets nest
+* evaluation uses a frozen example set keyed to ``eval_seed`` and independent of the
+  training seed
+* every run records study/scale/recipe ids, both seeds, the protocol hash and the
+  eval-set hash, so runs can be grouped and mismatched protocols refused
+* estimated FLOPs and measured throughput are recorded as separate fields
 """
 
 from __future__ import annotations
@@ -11,17 +18,17 @@ from __future__ import annotations
 import argparse
 import contextlib
 import math
-import os
 import random
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
 import torch
 
 from nanoscale.config import Config, load_config
-from nanoscale.data import get_batch, load_meta, load_split
-from nanoscale.eval import bits_per_byte, estimate_loss
+from nanoscale.data import FrozenEvalSet, PackedStream, load_meta, load_split, to_torch
+from nanoscale.eval import bits_per_byte, evaluate_frozen
 from nanoscale.experiments import RunRecord
 
 
@@ -36,11 +43,10 @@ def resolve_device(cfg: Config) -> str:
 
 def resolve_autocast_dtype(cfg: Config, device: str):
     if device != "cuda":
-        return None  # CPU: fp32, no autocast
-    name = cfg.dtype
-    if name == "auto" or name == "bf16":
+        return None
+    if cfg.dtype in ("auto", "bf16"):
         return torch.bfloat16
-    if name == "fp16":
+    if cfg.dtype == "fp16":
         return torch.float16
     return None
 
@@ -81,9 +87,14 @@ def lr_at(step: int, cfg: Config, max_steps: int) -> float:
 # ---------------------------------------------------------------------- #
 # training
 # ---------------------------------------------------------------------- #
-def train(cfg: Config, base_dir: str | Path = "experiments",
-          data_dir: str | Path | None = None) -> dict:
-    set_seed(cfg.seed)
+def train(
+    cfg: Config,
+    base_dir: str | Path = "experiments",
+    data_dir: str | Path | None = None,
+    protocol_hash: str | None = None,
+    resume_dir: str | Path | None = None,
+) -> dict:
+    set_seed(cfg.resolved_init_seed)
     device = resolve_device(cfg)
     autocast_dtype = resolve_autocast_dtype(cfg, device)
     data_dir = Path(data_dir) if data_dir else Path(cfg.data_dir or Path("data") / cfg.dataset)
@@ -95,54 +106,77 @@ def train(cfg: Config, base_dir: str | Path = "experiments",
     data_vocab = meta.get("vocab_size")
     if data_vocab is not None and cfg.vocab_size < data_vocab:
         raise ValueError(
-            f"config vocab_size ({cfg.vocab_size}) is smaller than the prepared "
-            f"data's vocab ({data_vocab}); token ids would exceed the embedding. "
-            f"Set vocab_size >= {data_vocab}."
+            f"config vocab_size ({cfg.vocab_size}) is smaller than the prepared data's "
+            f"vocab ({data_vocab}); set vocab_size >= {data_vocab}."
         )
 
-    from nanoscale.model import GPT  # local import keeps torch optional elsewhere
+    from nanoscale.model import GPT
 
     model = GPT(cfg).to(device)
     if cfg.compile:
         model = torch.compile(model)
     optimizer = build_optimizer(model, cfg)
     max_steps = cfg.derived_max_steps()
-    rng = np.random.default_rng(cfg.seed)
+
+    stream = PackedStream(train_data, cfg.block_size, cfg.resolved_data_seed)
+    eval_set = FrozenEvalSet(
+        val_data, cfg.block_size, n_batches=cfg.eval_iters,
+        batch_size=cfg.batch_size, eval_seed=cfg.eval_seed,
+    )
+    eval_hash = eval_set.content_hash()
 
     autocast = (
         torch.autocast(device_type="cuda", dtype=autocast_dtype)
-        if autocast_dtype is not None
-        else contextlib.nullcontext()
+        if autocast_dtype is not None else contextlib.nullcontext()
     )
     if device == "cuda":
         torch.cuda.reset_peak_memory_stats()
 
-    with RunRecord.create(
-        cfg, base_dir=base_dir,
-        extra_summary={
-            "device": device,
-            "dataset_hash": meta.get("dataset_hash"),
-            "tokenizer_hash": meta.get("tokenizer_hash"),
-        },
-    ) as rec:
-        import time
+    start_step = 0
+    ckpt_path = Path(resume_dir) / "checkpoint.pt" if resume_dir else None
+    if ckpt_path and ckpt_path.exists():
+        state = torch.load(ckpt_path, map_location=device, weights_only=False)
+        model.load_state_dict(state["model"])
+        optimizer.load_state_dict(state["optimizer"])
+        start_step = int(state.get("step", 0)) + 1
 
+    extra = {
+        "device": device,
+        "dataset_hash": meta.get("dataset_hash"),
+        "tokenizer_hash": meta.get("tokenizer_hash"),
+        "study_id": cfg.study_id,
+        "scale_id": cfg.scale_id,
+        "recipe_id": cfg.recipe_id,
+        "init_seed": cfg.resolved_init_seed,
+        "data_seed": cfg.resolved_data_seed,
+        "eval_set_hash": eval_hash,
+        "protocol_hash": protocol_hash,
+        "estimated_flops_per_token": cfg.estimated_flops_per_token(),
+        "target_train_tokens": cfg.total_tokens(),
+        "data_epochs": round(stream.epochs_for_tokens(cfg.total_tokens()), 4),
+        "corpus": meta.get("corpus", {}),
+    }
+
+    with RunRecord.create(cfg, base_dir=base_dir, extra_summary=extra) as rec:
         model.train()
         tokens_per_step = cfg.tokens_per_step()
-        tokens_seen = 0
+        tokens_seen = start_step * tokens_per_step
         last_loss = float("nan")
         last_grad_norm = 0.0
         max_logit = 0.0
+        micro = start_step * cfg.grad_accum
         t0 = time.time()
 
-        for step in range(max_steps):
+        for step in range(start_step, max_steps):
             lr = lr_at(step, cfg, max_steps)
             for g in optimizer.param_groups:
                 g["lr"] = lr
 
             optimizer.zero_grad(set_to_none=True)
             for _ in range(cfg.grad_accum):
-                x, y = get_batch(train_data, cfg.block_size, cfg.batch_size, device, rng)
+                xb, yb = stream.batch(micro, cfg.batch_size)
+                micro += 1
+                x, y = to_torch(xb, yb, device)
                 with autocast:
                     logits, loss = model(x, y)
                     loss = loss / cfg.grad_accum
@@ -161,45 +195,50 @@ def train(cfg: Config, base_dir: str | Path = "experiments",
 
             is_last = step == max_steps - 1
             if step % cfg.eval_interval == 0 or is_last:
-                val_loss = estimate_loss(
-                    model, val_data, cfg.block_size, cfg.batch_size,
-                    cfg.eval_iters, device, seed=cfg.seed,
-                )
+                val_loss = evaluate_frozen(model, eval_set, device)
                 rec.log_metrics({
-                    "step": step,
-                    "lr": lr,
-                    "train_loss": last_loss,
-                    "val_loss": val_loss,
-                    "grad_norm": last_grad_norm,
-                    "max_logit": max_logit,
-                    "tokens_seen": tokens_seen,
+                    "step": step, "lr": lr, "train_loss": last_loss,
+                    "val_loss": val_loss, "grad_norm": last_grad_norm,
+                    "max_logit": max_logit, "tokens_seen": tokens_seen,
                 })
 
+            if cfg.checkpoint_every and (step + 1) % cfg.checkpoint_every == 0:
+                _atomic_save(
+                    {"model": model.state_dict(), "optimizer": optimizer.state_dict(),
+                     "step": step, "config": cfg.to_dict()},
+                    rec.dir / "checkpoint.pt",
+                )
+
         train_wall = time.time() - t0
-        final_val = estimate_loss(
-            model, val_data, cfg.block_size, cfg.batch_size,
-            max(cfg.eval_iters, 50), device, seed=cfg.seed + 1,
-        )
+        final_val = evaluate_frozen(model, eval_set, device)
         bpb = bits_per_byte(final_val, meta.get("compression_val", 1.0))
+        tok_per_sec = tokens_seen / max(train_wall, 1e-9)
+        # FLOPs-estimate over measured time: an achieved-throughput figure, not a
+        # hardware counter. Kept distinct from the pure estimate above.
+        measured_tflops = cfg.estimated_flops_per_token() * tok_per_sec / 1e12
+
         if cfg.save_checkpoint:
-            torch.save(
-                {"model": model.state_dict(), "config": cfg.to_dict()},
-                rec.dir / "checkpoint.pt",
-            )
-        peak_mem = (
-            int(torch.cuda.max_memory_allocated()) if device == "cuda" else None
-        )
+            _atomic_save({"model": model.state_dict(), "config": cfg.to_dict()},
+                         rec.dir / "checkpoint.pt")
+
         rec.finish(
             tokens_seen=tokens_seen,
             final_val_loss=final_val,
             bits_per_byte=bpb,
-            tokens_per_sec=tokens_seen / max(train_wall, 1e-9),
-            peak_memory_bytes=peak_mem,
+            tokens_per_sec=tok_per_sec,
+            measured_tflops=measured_tflops,
+            peak_memory_bytes=int(torch.cuda.max_memory_allocated()) if device == "cuda" else None,
             max_logit=max_logit,
         )
         summary = dict(rec._summary)
 
     return summary
+
+
+def _atomic_save(obj, path: Path) -> None:
+    tmp = Path(str(path) + ".tmp")
+    torch.save(obj, tmp)
+    tmp.replace(path)
 
 
 # ---------------------------------------------------------------------- #
@@ -208,8 +247,8 @@ def train(cfg: Config, base_dir: str | Path = "experiments",
 def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
     ap = argparse.ArgumentParser(description="Train a nanoscale model.")
-    ap.add_argument("--config", default=None, help="YAML config path")
-    ap.add_argument("--data-dir", default=None, help="override prepared-data directory")
+    ap.add_argument("--config", default=None)
+    ap.add_argument("--data-dir", default=None)
     args, overrides = ap.parse_known_args(argv)
 
     cfg = load_config(args.config, overrides)
