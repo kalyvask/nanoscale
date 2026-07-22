@@ -20,18 +20,12 @@ import argparse
 import sys
 
 from nanoscale.config import load_config
+from nanoscale.planning import RECIPES
 from nanoscale.train import train
 
-# variant name -> (group, override kwargs relative to the full-stack baseline)
-VARIANTS: dict[str, tuple[str, dict]] = {
-    "baseline":     ("baseline",   {}),
-    "no_rope":      ("quality",    {"pos": "learned"}),
-    "no_rmsnorm":   ("quality",    {"norm": "layer"}),
-    "no_swiglu":    ("quality",    {"activation": "gelu"}),
-    "no_qknorm":    ("stability",  {"qk_norm": False}),
-    "no_zloss":     ("stability",  {"z_loss": 0.0}),
-    "untied":       ("efficiency", {"tie_weights": False}),
-}
+# Single source of truth for the recipe grid lives in nanoscale.planning, so the local
+# runner, the Modal runner, and the cost estimator cannot drift apart.
+VARIANTS = RECIPES
 
 
 def main(argv: list[str] | None = None) -> None:
