@@ -51,6 +51,22 @@ def test_split_train_eval_disjoint():
     assert len(eval_text.encode()) <= 1000
 
 
+def test_eval_slice_nonempty_when_sample_exceeds_corpus():
+    """Regression: a sample larger than the corpus must not starve the eval slice."""
+    text = "abcdefghij" * 100  # 1000 bytes
+    train_text, eval_text = ts.split_train_eval(text, sample_bytes=10_000, eval_bytes=300)
+    assert len(eval_text.encode()) == 300
+    assert len(train_text.encode()) == 700
+    # and the two halves do not overlap
+    assert text.encode().endswith(eval_text.encode())
+
+
+def test_eval_slice_capped_at_half_corpus():
+    text = "abcdefghij" * 100  # 1000 bytes
+    _, eval_text = ts.split_train_eval(text, sample_bytes=None, eval_bytes=10_000)
+    assert len(eval_text.encode()) == 500
+
+
 def test_render_report_labels_smoke():
     rows = [{"label": "bytes", "vocab_size": 257, "compression": 1.0, "fertility": 5.0,
              "utilization": 0.5, "train_time": 0.0, "encode_bytes_per_sec": 1e6}]

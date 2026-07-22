@@ -10,6 +10,7 @@ venv/
 # nanoscale artifacts
 experiments/runs/
 experiments/manifest.jsonl
+analysis/**/_tmpdata/
 experiments/*.bin
 experiments/*.json
 data/

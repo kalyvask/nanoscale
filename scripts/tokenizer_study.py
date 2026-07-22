@@ -121,11 +121,17 @@ def load_corpus_path(args) -> tuple[Path, str]:
     raise SystemExit("provide --dataset tinyshakespeare or --input <path>")
 
 
-def split_train_eval(text: str, sample_bytes: int, eval_bytes: int) -> tuple[str, str]:
-    """Disjoint tokenizer-training sample (head) and held-out eval slice (tail)."""
+def split_train_eval(text: str, sample_bytes: int | None, eval_bytes: int) -> tuple[str, str]:
+    """Disjoint tokenizer-training sample (head) and held-out eval slice (tail).
+
+    The eval slice is reserved *first* so it is never empty, even when the requested
+    tokenizer-training sample is larger than the corpus.
+    """
     b = text.encode("utf-8")
-    train_b = b[:sample_bytes]
-    eval_b = b[-eval_bytes:] if len(b) > sample_bytes + eval_bytes else b[sample_bytes:]
+    eval_n = min(eval_bytes, len(b) // 2)  # never hold out more than half
+    eval_b = b[len(b) - eval_n:] if eval_n else b[:0]
+    head = b[: len(b) - eval_n]
+    train_b = head[:sample_bytes] if sample_bytes else head
     return train_b.decode("utf-8", errors="ignore"), eval_b.decode("utf-8", errors="ignore")
 
 
