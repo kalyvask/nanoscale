@@ -85,6 +85,23 @@ grid holds constant. TinyShakespeare/CPU is plumbing; the real decision is on Fi
 frozen and hashed for all later experiments. (Intrinsic + CPU model arm validated on
 TinyShakespeare; freeze happens at M6.)
 
+Harness validated on TinyShakespeare (800 KB tokenizer sample, 150 KB held out, 50-step
+equal-budget models). Plumbing only, single seed, not a finding:
+
+| tokenizer | compression | fertility | util% | train_s | bits/byte | model tok/s |
+|---|---|---|---|---|---|---|
+| bytes | 1.00 | 5.50 | 24.1 | 0 | 4.133 | 4,770 |
+| bpe_1024 | 2.25 | 2.45 | 72.0 | 25 | 3.332 | 3,353 |
+| bpe_4096 | 2.79 | 1.97 | 66.5 | 111 | 2.815 | 3,676 |
+| bpe_8192 | 2.97 | 1.85 | 47.6 | 154 | 2.696 | 2,986 |
+| bpe_16384 | 3.08 | 1.79 | 27.8 | 289 | 2.647 | 1,595 |
+
+Observations to carry into the FineWeb-Edu run: BPE beats bytes decisively, but gains
+saturate (8K to 16K buys 0.05 bits/byte for 2x the tokenizer training time and ~2x
+slower model throughput); utilization falls off at large vocab, though the 150 KB
+held-out slice understates it (rare tokens cannot appear in so little text), so the real
+run needs a much larger eval slice before utilization is trusted.
+
 **Decision metric:** lowest equal-budget bits/byte (tokenizer-independent). Compression,
 fertility, and utilization are informative but not decisive. "Equal budget" = same model
 and same token budget; a denser tokenizer therefore sees more underlying text per token,

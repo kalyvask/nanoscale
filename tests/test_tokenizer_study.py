@@ -83,12 +83,13 @@ def test_script_runs_standalone(tmp_path):
 
     repo = Path(__file__).resolve().parents[1]
     corpus = tmp_path / "c.txt"
-    corpus.write_text("\n\n".join(f"doc {i} the quick brown fox" for i in range(40)),
-                      encoding="utf-8")
+    # large enough that the held-out slice clears the minimum-eval guard
+    corpus.write_text("\n\n".join(f"doc {i} the quick brown fox jumps over the lazy dog"
+                                  for i in range(400)), encoding="utf-8")
     proc = subprocess.run(
         [sys.executable, str(repo / "scripts" / "tokenizer_study.py"),
          "--input", str(corpus), "--vocab-sizes", "300",
-         "--sample-mb", "0.02", "--eval-mb", "0.01", "--out", str(tmp_path / "out")],
+         "--sample-mb", "0.01", "--eval-mb", "0.005", "--out", str(tmp_path / "out")],
         capture_output=True, text=True, cwd=repo, timeout=300,
     )
     assert proc.returncode == 0, proc.stderr

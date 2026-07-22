@@ -55,9 +55,12 @@ def build_tokenizers(train_text: str, vocab_sizes: list[int], sample_bytes: int 
     """Return an ordered dict label -> (tokenizer, train_time_seconds)."""
     out: dict[str, tuple[Tokenizer, float]] = {"bytes": (Tokenizer.bytes_tokenizer(), 0.0)}
     for v in vocab_sizes:
+        print(f"  training BPE vocab {v} ...", flush=True)
         t0 = time.perf_counter()
         tok = Tokenizer.train(train_text, vocab_size=v, max_bytes=sample_bytes)
-        out[f"bpe_{v}"] = (tok, time.perf_counter() - t0)
+        dt = time.perf_counter() - t0
+        print(f"    reached {tok.vocab_size} in {dt:.1f}s", flush=True)
+        out[f"bpe_{v}"] = (tok, dt)
     return out
 
 
@@ -206,8 +209,19 @@ def main(argv: list[str] | None = None) -> None:
     eval_bytes = int(args.eval_mb * 1_000_000)
     train_text, eval_text = split_train_eval(text, sample_bytes or len(text.encode()), eval_bytes)
 
+    n_eval = len(eval_text.encode())
     print(f"Corpus '{name}': {len(text.encode()):,} bytes; "
-          f"tokenizer sample {len(train_text.encode()):,} B, eval {len(eval_text.encode()):,} B")
+          f"tokenizer sample {len(train_text.encode()):,} B, eval {n_eval:,} B")
+    # Refuse to produce metrics computed on nothing: an empty or tiny held-out slice
+    # yields plausible-looking but meaningless compression/fertility/utilization.
+    if n_eval < 1000:
+        raise SystemExit(
+            f"held-out eval slice is too small ({n_eval} bytes). Lower --sample-mb or "
+            f"raise --eval-mb; metrics on a slice this size are meaningless."
+        )
+    if n_eval < 100_000:
+        print(f"  warning: utilization is measured on only {n_eval:,} bytes, which "
+              f"understates large vocabularies (rare tokens cannot appear).")
 
     tokenizers = build_tokenizers(train_text, vocab_sizes, sample_bytes)
 
