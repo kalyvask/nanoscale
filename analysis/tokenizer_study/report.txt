@@ -1,0 +1,27 @@
+============================================================================================
+TOKENIZER STUDY -- SMOKE-TEST PLUMBING (TinyShakespeare, CPU), NOT A FINDING
+============================================================================================
+tokenizer    vocab  compress  fertility   util%  train_s  enc_MB/s
+------------------------------------------------------------------
+bytes          257     1.000      5.605   23.0     0.00      9.43
+bpe_512        512     1.788      3.135   55.3     0.85      1.47
+============================================================================================
+Qualitative segmentation (piece boundaries shown with '|'):
+
+[bytes]
+  'To be, or not to be, that is the question.'
+    -> T|o| |b|e|,| |o|r| |n|o|t| |t|o| |b|e|,| |t|h|a|t| |i|s| |t|h|e| |q|u|e|s|t|i|o|n|.
+  'The quick brown fox jumps over the lazy dog.'
+    -> T|h|e| |q|u|i|c|k| |b|r|o|w|n| |f|o|x| |j|u|m|p|s| |o|v|e|r| |t|h|e| |l|a|z|y| |d|o|g|.
+  'internationalization and tokenization'
+    -> i|n|t|e|r|n|a|t|i|o|n|a|l|i|z|a|t|i|o|n| |a|n|d| |t|o|k|e|n|i|z|a|t|i|o|n
+
+[bpe_512]
+  'To be, or not to be, that is the question.'
+    -> To| be|,| |or| not| to| be|,| that| is| the| |q|u|est|ion|.
+  'The quick brown fox jumps over the lazy dog.'
+    -> The| |q|u|ic|k| b|r|ow|n| f|o|x| |j|um|p|s| o|ver| the| l|a|z|y| do|g|.
+  'internationalization and tokenization'
+    -> in|ter|n|at|ion|al|i|z|at|ion| and| to|k|en|i|z|at|ion
+============================================================================================
+Run with --with-model to add the deciding equal-budget bits/byte.

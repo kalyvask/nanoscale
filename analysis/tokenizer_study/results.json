@@ -1,0 +1,22 @@
+[
+  {
+    "label": "bytes",
+    "train_time": 0.0,
+    "vocab_size": 257,
+    "compression": 1.0,
+    "fertility": 5.605381165919282,
+    "utilization": 0.22957198443579765,
+    "encode_bytes_per_sec": 9433961.919671014,
+    "n_tokens_eval": 20000
+  },
+  {
+    "label": "bpe_512",
+    "train_time": 0.8450806000037119,
+    "vocab_size": 512,
+    "compression": 1.7879492222420883,
+    "fertility": 3.1350896860986546,
+    "utilization": 0.552734375,
+    "encode_bytes_per_sec": 1471323.8959319375,
+    "n_tokens_eval": 11186
+  }
+]

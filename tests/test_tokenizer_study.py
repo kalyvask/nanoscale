@@ -59,6 +59,26 @@ def test_render_report_labels_smoke():
     assert "NOT A FINDING" in out
 
 
+def test_script_runs_standalone(tmp_path):
+    """Regression: running the file directly must not break `scripts` imports."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    corpus = tmp_path / "c.txt"
+    corpus.write_text("\n\n".join(f"doc {i} the quick brown fox" for i in range(40)),
+                      encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, str(repo / "scripts" / "tokenizer_study.py"),
+         "--input", str(corpus), "--vocab-sizes", "300",
+         "--sample-mb", "0.02", "--eval-mb", "0.01", "--out", str(tmp_path / "out")],
+        capture_output=True, text=True, cwd=repo, timeout=300,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "TOKENIZER STUDY" in proc.stdout
+
+
 def test_model_bits_per_byte_path(tmp_path):
     # exercise the equal-budget model path once (bytes tokenizer, tiny budget)
     docs = "\n\n".join(f"scene {i}: the quick brown fox {i % 4}" for i in range(60))
