@@ -164,6 +164,33 @@ hours/cost, proposed exact 15M/40M/100M configs, unresolved decisions).
 
 ---
 
+## M6a — Protocol validity change set  (done; protocol still a DRAFT)
+Fixes found while treating the first protocol as a draft rather than a plan.
+
+- [x] `target_train_tokens` per scale from the baseline geometry; identical
+      tokens/max_steps for every recipe at a scale (tests prove learned positions and
+      untied weights no longer receive extra data)
+- [x] FLOPs include the vocabulary output projection regardless of weight tying;
+      `estimated_*` names keep estimates separate from measured throughput
+- [x] Iterable document ingestion, content-hash train/val assignment stable under
+      corpus growth, incremental token and hash writing
+- [x] Corpora pinned by immutable revision and explicit shard order; unpinned
+      FineWeb-Edu config is refused by the loader on purpose
+- [x] Deterministic packed stream replacing random-with-replacement sampling; S, M and
+      L consume nested prefixes per shared `data_seed`
+- [x] Frozen evaluation set keyed to `eval_seed`, independent of the training seed
+- [x] `study_id`, `protocol_hash`, `scale_id`, `recipe_id`, `init_seed`, `data_seed`,
+      `eval_set_hash` on every run; atomic summary writes
+- [x] Resumable 63-run runner (skip completed identities, periodic checkpoints);
+      dry-run prints the full matrix and estimated cost
+- [x] Analysis written before execution: paired effects, selection regret, selection
+      probabilities, descriptive Spearman/Kendall, equivalence-aware classification,
+      Markdown/HTML report
+- [x] Five-seed S pilot configured (baseline + `no_swiglu`), **not run**
+- [x] Interaction cells deferred until the balanced three-seed L grid is funded
+
+---
+
 ## M6 — Experimental protocol  (before any GPU spend)
 - [ ] Run M1.5 tokenizer study on FineWeb-Edu; freeze the winner (vocab ~16,384) + hash
 - [ ] Local FineWeb-Edu-format ingestion proven on a small shard, then the streaming adapter

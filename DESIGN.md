@@ -260,22 +260,46 @@ change.
 at enough sizes to compute rank transfer. We do **not** shortlist small-scale winners and
 skip credible alternatives at large scale.
 
+**Equal token budget within a scale.** `target_train_tokens` is computed once per scale
+from the **baseline** geometry and applied to every recipe there. Deriving it per run
+from that run's own `n_params` would hand learned positions and untied embeddings extra
+training data purely for having more parameters, confounding the intervention with the
+budget. Enforced in `planning.build_grid` and covered by tests.
+
+**Deterministic, nested data.** Training consumes a packed stream of non-overlapping
+blocks whose order depends only on `data_seed`, not on the model. Because the order is
+shared across scales, S's blocks are a prefix of M's and M's of L's, so scale is the
+only thing that varies. Random-offset sampling with replacement was removed: it gave
+different runs different amounts of unique data.
+
+**Frozen evaluation.** Eval blocks are chosen by a fixed `eval_seed` independent of the
+training seed and hashed into every record, so no run can benefit from an easier sample.
+
 **Seeds and uncertainty.**
 | size | params (approx) | seeds |
 |---|---|---|
-| S | 15M | 3 |
-| M | 40M | 3 |
-| L | 100M | >= 2 |
-| XL (optional) | 300M | 2 (confirmation, if compute permits) |
+| S | 17M | 3 |
+| M | 33M | 3 |
+| L | 98M | 3 |
+
+Balanced at 3 seeds per scale so paired effects have equal power everywhere.
+**Interaction cells are deferred** until the balanced three-seed L grid is funded;
+adding cells before the main grid is powered would buy breadth at the cost of being
+able to resolve anything.
 
 Every reported metric carries a spread across seeds (mean plus a dispersion estimate;
 small-n CIs where meaningful). An effect that is within seed noise is reported as
 **statistically unresolved**, not as a win.
 
-**Preregistered interaction checks** (added after the main grid, Section documented so
-they are not fished for):
-- `qk_norm` x `z_loss`
-- `norm` x `activation`
+**Deferred interaction checks.** Preregistered but not scheduled: `qk_norm` x `z_loss`
+and `norm` x `activation`. They run only once the balanced three-seed L grid is funded.
+
+**Analysis is written before execution** (`nanoscale/analysis.py`): paired per-seed
+effects against the baseline, selection regret, selection probability by seed
+resampling, descriptive Spearman/Kendall (flagged underpowered at this recipe count),
+and equivalence-aware verdicts where a small effect with a wide interval is reported
+`unresolved` rather than as no effect. Deciding how to read the numbers after seeing
+them is how a study argues itself into a result.
 
 **Transfer analysis.**
 - Rank correlation of recipe ordering between each pair of sizes.
@@ -365,8 +389,10 @@ and same-seed CPU reproducibility are all required. No test downloads external d
 1. **Budget basis:** `D/N = 20` with **N = total parameters** (Chinchilla convention).
    Noted trade-off: at ~15M the embedding table is ~37% of N, so small models spend a
    larger share of their budget on the embedding; accepted for convention-compatibility.
-2. **Size tiers:** S ~15M, M ~40M, L ~100M (no XL for now). ~36 GPU-h core (~1.5
-   GPU-days, ~$54 on A100). Seeds: S 3, M 3, L 2, plus interaction checks (2 x 3 at S,M).
+2. **Size tiers:** S ~17M, M ~33M, L ~98M, 3 seeds each = **63 runs**. Revised estimate
+   after the FLOP correction and the balanced seed plan: **~24 GPU-h, ~$95 on H100**
+   (S 0.65h, M 2.50h, L 20.87h). The L tier is ~87% of the compute. Interaction cells
+   deferred. Estimates are optimistic for the small tiers; calibrate before trusting.
 3. **Systems depth:** resource accounting + `torch.compile` + SDPA + tokens/sec + MFU +
    peak memory. No custom Triton kernel in the core (remains a labeled stretch goal).
 4. **Corpus:** FineWeb-Edu. Freeze one byte-level BPE tokenizer (vocab 16,384) on a
