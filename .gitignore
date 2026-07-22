@@ -22,3 +22,6 @@ checkpoints/
 Thumbs.db
 .vscode/
 .idea/
+
+# generated study outputs (commit deliberately when a real run lands)
+analysis/
