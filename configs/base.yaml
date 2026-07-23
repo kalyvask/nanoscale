@@ -34,7 +34,10 @@ eval_iters: 100
 
 dataset: fineweb_edu
 data_dir: null
-tokenizer_path: null
+# Frozen by the M1.5 tokenizer study on FineWeb-Edu (revision 87f09149), decided on
+# equal-budget bits/byte. content hash 03be9e0e34d77bec. Held constant across the
+# whole study; changing it changes protocol_hash and invalidates pooling.
+tokenizer_path: artifacts/tokenizer_fineweb_16384.json
 device: auto
 dtype: auto
 compile: false

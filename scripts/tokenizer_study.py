@@ -200,6 +200,9 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--out", default="analysis/tokenizer_study")
     ap.add_argument("--freeze", default=None,
                     help="save the winning tokenizer to this path (e.g. data/tokenizer.json)")
+    ap.add_argument("--freeze-vocab", type=int, default=None,
+                    help="materialize this vocab size as the frozen tokenizer. Use only "
+                         "to record a winner already decided by a --with-model run.")
     ap.add_argument("--base-dir", default="experiments")
     args = ap.parse_args(argv)
 
@@ -265,8 +268,18 @@ def main(argv: list[str] | None = None) -> None:
         if args.freeze:
             tokenizers[winner["label"]][0].save(args.freeze)
             print(f"Froze {winner['label']} -> {args.freeze}")
+    elif args.freeze and args.freeze_vocab:
+        label = f"bpe_{args.freeze_vocab}"
+        if label not in tokenizers:
+            raise SystemExit(f"{label} not among the trained tokenizers: {list(tokenizers)}")
+        tok = tokenizers[label][0]
+        tok.save(args.freeze)
+        print(f"Froze {label} (vocab {tok.vocab_size}, hash {tok.content_hash()}) "
+              f"-> {args.freeze}")
+        print("NOTE: recorded from a decision made by a prior --with-model run.")
     elif args.freeze:
-        print("Refusing to freeze without --with-model (no deciding metric).")
+        print("Refusing to freeze without --with-model (no deciding metric). "
+              "Pass --freeze-vocab N to record a winner decided by an earlier run.")
 
 
 if __name__ == "__main__":
