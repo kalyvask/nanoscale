@@ -84,23 +84,58 @@ Written from scratch. No training framework, no experiment-tracking service.
 SDPA agreement, tokenizer round-trips on arbitrary bytes, document-split leakage,
 overfit-one-batch, and same-seed determinism.
 
+## Protocol constants (frozen)
+
+The study only means anything if these are held fixed, so they are pinned, hashed, and
+recorded on every run:
+
+| constant | value |
+|---|---|
+| corpus | FineWeb-Edu, revision `87f09149ef4734204d70ed1d046ddc9ca3f2b8f9`, 4 explicit shards |
+| tokenizer | byte-level BPE, vocab 16,384, hash `03be9e0e34d77bec` |
+| protocol hash | `31f6c08926236ff0` |
+| budget | D/N = 20 on total parameters, one target per scale from the baseline geometry |
+| grid | 7 recipes x 3 scales x 3 seeds = 63 runs |
+
+Two properties are enforced in code rather than left to care. Every recipe at a scale
+trains on an identical token budget, so the recipes that add parameters (learned
+positions, untied embeddings) cannot quietly receive more data. And the training stream
+is a deterministic permutation keyed only to `data_seed`, so S, M and L consume nested
+prefixes of the same data.
+
 ## What has been measured, and what has not
 
 Reported the way the design demands, with the boundary stated rather than blurred.
 
-**Measured.** The instrument works. A 977K-parameter model trains on TinyShakespeare
-(validation loss 5.49 to 2.06), generates text with speaker structure, and the
-seven-config ablation grid runs end to end. The tokenizer study runs across bytes and BPE
-at 1K/4K/8K/16K: BPE beats bytes decisively (4.13 to 2.65 bits per byte), gains saturate
-(8K to 16K buys 0.05 bits per byte for twice the tokenizer training time and roughly half
-the model throughput), and segmentation visibly sharpens toward word level.
+**Measured.** The instrument works, and the tokenizer decision is real. On FineWeb-Edu
+with a 25 MB training sample and a 10 MB held-out slice, decided on equal-budget bits per
+byte as preregistered:
+
+| tokenizer | compression | fertility | utilization | bits/byte | model tok/s |
+|---|---|---|---|---|---|
+| bytes | 1.00 | 6.15 | 75.1% | 3.593 | 6,693 |
+| bpe_1024 | 2.52 | 2.44 | 93.8% | 3.273 | 5,783 |
+| bpe_4096 | 3.44 | 1.79 | 98.4% | 2.823 | 4,532 |
+| bpe_8192 | 3.88 | 1.59 | 98.8% | 2.631 | 3,060 |
+| **bpe_16384** | 4.27 | 1.44 | 97.8% | **2.466** | 1,960 |
+
+Quality keeps improving with vocabulary while throughput falls by roughly a third from
+8K to 16K, which is a genuine trade rather than a free win. The pipeline itself is
+proven separately on CPU: a 977K-parameter model trains on TinyShakespeare (validation
+loss 5.49 to 2.06), generates text, and the seven-config grid runs end to end.
 
 **Not measured, and not claimed.** Nothing about rank transfer, selection regret, or
-whether any component's effect reverses with scale. The numbers above come from a
-character-level corpus, one seed, a few hundred steps, and a model three orders of
-magnitude below the interesting regime. They are plumbing checks that prove the pipeline,
-and the tooling stamps them as such in its own output rather than relying on the reader
-to remember. A working pipeline feels like progress on the research question and is not.
+whether any component's effect reverses with scale. No model has been trained on
+FineWeb-Edu. The CPU numbers come from a character-level corpus, one seed and a few
+hundred steps, and the tooling stamps them as plumbing in its own output rather than
+relying on the reader to remember. A working pipeline feels like progress on the
+research question and is not.
+
+One measurement lesson already earned: on TinyShakespeare, vocabulary utilization
+appeared to collapse at 16K (27.8%). That was an artifact of a 150 KB evaluation slice
+being too small for rare tokens to appear. With a 10 MB slice utilization is 93-99%
+across every BPE size. The harness now refuses a slice under 1 KB and warns below
+100 KB, because metrics computed on too little data look plausible rather than wrong.
 
 Two honesty constraints are built into the method rather than left to discipline:
 one-at-a-time flips measure **conditional** effects given the rest of the baseline, not
@@ -109,11 +144,23 @@ never the best-looking checkpoint.
 
 ## Where this is going
 
-The real study runs on FineWeb-Edu at roughly 15M, 40M, and 100M parameters, holding the
-tokenizer, corpus, context length, optimizer, schedule shape, and tokens-per-parameter
-ratio constant, with 3/3/2 seeds and two preregistered interaction checks. Estimated cost
-is about 36 GPU-hours, near $54 on an A100, priced from the FLOP accounting before
-anything is launched.
+The real study runs on FineWeb-Edu at roughly 17M, 33M and 98M parameters with 3 seeds
+each: 63 runs, about 24 GPU-hours, near $95 on an H100, priced from the FLOP accounting
+before anything is launched. The 98M tier is about 87% of that compute. Interaction
+cells are deferred until the balanced three-seed grid at the largest tier is funded,
+because buying breadth before the main grid can resolve anything is a bad trade.
+
+The analysis is already written, deliberately: paired per-seed effects, selection
+regret, selection probability by seed resampling, descriptive rank correlation (flagged
+underpowered at seven recipes), and equivalence-aware verdicts where a small effect with
+a wide interval reads `unresolved` rather than "no effect". Choosing how to read numbers
+after seeing them is how a study argues itself into a result.
+
+Before the grid there is a ten-run power pilot at the smallest scale: baseline plus one
+representative variant across five seeds. It measures the seed-noise floor and a typical
+effect size, which together decide whether three seeds can resolve anything at all. It
+also sets the equivalence margin, which should come from measured noise rather than
+being chosen.
 
 A deliberate non-goal: no claim that a baseline-only fit of `L(N) = E + A/N^alpha`
 identifies a compute-optimal model. That needs size, data, and compute varied jointly.
@@ -125,6 +172,8 @@ spending gate has to pass before any large run.
 - Design and methodology: [DESIGN.md](DESIGN.md)
 - Milestones, protocol, and gates: [ROADMAP.md](ROADMAP.md)
 
-Status: M0 through M5 built, CPU gate passed, tokenizer study harness validated. Next is
-the FineWeb-Edu adapter, which unblocks freezing the tokenizer and the scale configs. No
-GPU runs yet.
+Status: pipeline built and CPU-verified; protocol hardened; corpus pinned; tokenizer
+frozen; runner, analysis and Modal integration in place. The remaining prerequisite is
+tokenizing the corpus once, sized for the largest tier that will ever run, because the
+stream permutation depends on the block count and appending data later would break the
+nested prefixes. Then the power pilot, then the spending gate. **No GPU runs yet.**

@@ -6,10 +6,15 @@ before any large run. Phases map to CS336 lectures/assignments.
 
 Legend: `[ ]` todo, `[~]` in progress, `[x]` done.
 
-**Progress (2026-07-21):** M0-M5 built and the CPU acceptance gate passed. 130 tests
-green; ~1M-param model trains on TinyShakespeare (val loss 5.49 -> 2.06), generates
-text, and the 7-config ablation grid runs on CPU. Next: M6 experimental protocol,
-then the GPU spending gate. No GPU runs yet.
+**Progress (2026-07-23):** M0-M5 built, CPU gate passed, M6a protocol-validity change
+set landed, and Phase 1 of M6 is complete apart from corpus preparation. 206 tests
+green. Corpus pinned (FineWeb-Edu `87f09149`, 4 shards), tokenizer frozen (vocab 16,384,
+hash `03be9e0e34d77bec`), `protocol_hash` = `31f6c08926236ff0`, Modal runner built.
+Remaining before the pilot: tokenize the corpus once, sized for L. No GPU runs yet.
+
+**Cost note:** the estimate rose from ~$59 to ~$95 (H100) after balancing seeds to 3/3/3
+and correcting FLOPs to include the output projection. The L tier is ~87% of it. Against
+a $30 balance, S+M fits (~$12) and L does not.
 
 Local commit checkpoints (no push yet):
 1. `docs: define proxy-validity study`
@@ -192,7 +197,13 @@ Fixes found while treating the first protocol as a draft rather than a plan.
 ---
 
 ## M6 — Experimental protocol  (before any GPU spend)
-- [ ] Run M1.5 tokenizer study on FineWeb-Edu; freeze the winner (vocab ~16,384) + hash
+- [x] Pin FineWeb-Edu: revision `87f09149ef4734204d70ed1d046ddc9ca3f2b8f9`, 4 shards
+- [x] Run M1.5 tokenizer study on FineWeb-Edu; freeze the winner (vocab 16,384,
+      hash `03be9e0e34d77bec`) and wire it into `base.yaml`
+- [x] Modal runner: CPU prepare into a Volume, batched GPU training, plan-only default
+- [ ] **Tokenize the corpus once, sized for L (~2B tokens).** Must cover the largest
+      tier that will ever run: `PackedStream` permutes over the block count, so
+      appending data later changes the order and breaks nested prefixes
 - [ ] Local FineWeb-Edu-format ingestion proven on a small shard, then the streaming adapter
 - [ ] `configs/scales/{s,m,l}.yaml` = exact 15M/40M/100M configs; hold constants per DESIGN
 - [ ] Derive per-size `max_iters` from `D/N = 20`; verify FLOP-matched budgets
