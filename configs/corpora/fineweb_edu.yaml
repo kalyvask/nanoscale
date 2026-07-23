@@ -1,18 +1,29 @@
 # FineWeb-Edu, pinned.
 #
-# `revision` MUST be an immutable commit sha from
-# https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu/commits/main
-# The loader refuses "main" on purpose: an unpinned dataset can change under the
-# study and silently make runs incomparable.
+# revision is an immutable commit sha, resolved 2026-07-22 from
+# https://huggingface.co/api/datasets/HuggingFaceFW/fineweb-edu
+# (repo lastModified 2025-07-11). The loader refuses "main" on purpose: an unpinned
+# dataset can change under the study and silently make runs incomparable.
 #
-# `shards` fixes both WHICH files are read and (after sorting) the order they are
-# read in, so the packed token stream is reproducible.
+# shards fixes both WHICH files are read and (after sorting) the order they are read
+# in, so the packed token stream is reproducible. The sample-10BT config has 14
+# shards totalling ~28.5 GB; the L tier needs ~1.95B tokens (~20% of 10B), so four
+# shards are pinned for headroom.
+#
+# IMPORTANT: the corpus must be prepared once, sized for the LARGEST tier that will
+# ever run. PackedStream permutes over the block count, so appending data later
+# changes the permutation and breaks the nested-prefix property that makes
+# cross-scale comparison valid.
 name: fineweb_edu
 kind: hf
 repo_id: HuggingFaceFW/fineweb-edu
 config_name: sample-10BT
 split: train
 text_field: text
-revision: null        # <-- PIN BEFORE USE (commit sha), study will refuse to run otherwise
-shards: []            # <-- list explicit parquet paths, e.g. sample/10BT/000_00000.parquet
+revision: 87f09149ef4734204d70ed1d046ddc9ca3f2b8f9
+shards:
+  - sample/10BT/000_00000.parquet
+  - sample/10BT/001_00000.parquet
+  - sample/10BT/002_00000.parquet
+  - sample/10BT/003_00000.parquet
 max_documents: null

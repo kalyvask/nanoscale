@@ -16,9 +16,9 @@ The tokenizer is frozen for the real study; :meth:`save`/:meth:`load` round-trip
 
 from __future__ import annotations
 
+import heapq
 import json
 import re
-from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
@@ -106,32 +106,73 @@ class Tokenizer:
         if max_bytes is not None:
             sample = text.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore")
 
-        # Pre-tokenize into chunks and count unique chunk frequencies. BPE then runs over
-        # the (small) set of unique chunks weighted by frequency -- far faster than
-        # scanning the whole byte stream once per merge.
-        words: dict[tuple[int, ...], int] = {}
+        # Pre-tokenize into chunks and count unique chunk frequencies. BPE runs over the
+        # set of unique chunks weighted by frequency, and pair counts are maintained
+        # *incrementally*: only chunks containing the merged pair are touched, and the
+        # best pair is found with a lazy max-heap. Recomputing every count on every
+        # merge is what made a 16k vocabulary take tens of minutes.
+        freqs: dict[tuple[int, ...], int] = {}
         for chunk in SPLIT_PATTERN.findall(sample):
             key = tuple(chunk.encode("utf-8"))
-            words[key] = words.get(key, 0) + 1
+            freqs[key] = freqs.get(key, 0) + 1
+
+        words: list[list[int]] = []
+        weights: list[int] = []
+        for seq, freq in freqs.items():
+            if len(seq) >= 2:  # length-1 chunks can never contribute a pair
+                words.append(list(seq))
+                weights.append(freq)
+
+        counts: dict[tuple[int, int], int] = {}
+        where: dict[tuple[int, int], set[int]] = {}
+        for i, seq in enumerate(words):
+            w = weights[i]
+            for pair in zip(seq, seq[1:]):
+                counts[pair] = counts.get(pair, 0) + w
+                where.setdefault(pair, set()).add(i)
+
+        # (-count, pair) so the heap yields the highest count and, among ties, the
+        # lexicographically smallest pair: the same deterministic rule as before.
+        heap = [(-c, p) for p, c in counts.items()]
+        heapq.heapify(heap)
 
         merges: dict[tuple[int, int], int] = {}
         for i in range(num_merges):
-            counts: dict[tuple[int, int], int] = {}
-            for seq, freq in words.items():
-                for pair in zip(seq, seq[1:]):
-                    counts[pair] = counts.get(pair, 0) + freq
-            if not counts:
+            best = None
+            while heap:
+                neg, pair = heapq.heappop(heap)
+                if counts.get(pair, 0) == -neg:
+                    best = pair
+                    break  # stale entries are skipped; a fresh one was pushed on change
+            if best is None:
                 break
-            max_count = max(counts.values())
-            # deterministic tie-break: smallest pair among the most frequent
-            best = min(p for p, c in counts.items() if c == max_count)
+
             new_id = BYTE_VOCAB + i
             merges[best] = new_id
-            new_words: dict[tuple[int, ...], int] = {}
-            for seq, freq in words.items():
-                merged = tuple(_merge(list(seq), best, new_id))
-                new_words[merged] = new_words.get(merged, 0) + freq
-            words = new_words
+            touched: dict[tuple[int, int], None] = {}
+            for wi in list(where.get(best, ())):
+                seq, w = words[wi], weights[wi]
+                for pr in zip(seq, seq[1:]):          # retract old contributions
+                    counts[pr] = counts.get(pr, 0) - w
+                    s = where.get(pr)
+                    if s is not None:
+                        s.discard(wi)
+                    touched[pr] = None
+                merged = _merge(seq, best, new_id)
+                words[wi] = merged
+                for pr in zip(merged, merged[1:]):    # add new contributions
+                    counts[pr] = counts.get(pr, 0) + w
+                    where.setdefault(pr, set()).add(wi)
+                    touched[pr] = None
+            counts.pop(best, None)
+            where.pop(best, None)
+            touched.pop(best, None)
+            for pr in touched:
+                c = counts.get(pr, 0)
+                if c > 0:
+                    heapq.heappush(heap, (-c, pr))
+                else:
+                    counts.pop(pr, None)
 
         tok = cls(merges, mode="bpe")
         # assign special ids above the learned BPE vocabulary

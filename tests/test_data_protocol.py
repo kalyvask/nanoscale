@@ -173,8 +173,21 @@ def test_local_corpus_iterates(tmp_path):
     assert len(list(iter_corpus(spec))) == 5
 
 
-def test_fineweb_config_ships_unpinned_and_is_rejected():
-    """The shipped config must not silently default to a mutable revision."""
-    spec_path = "configs/corpora/fineweb_edu.yaml"
-    with pytest.raises(ValueError, match="immutable revision"):
-        CorpusSpec.from_yaml(spec_path)
+def test_fineweb_config_is_pinned_to_an_immutable_revision():
+    """The shipped config must name a commit sha, never a moving branch."""
+    spec = CorpusSpec.from_yaml("configs/corpora/fineweb_edu.yaml")
+    assert spec.revision and len(spec.revision) == 40
+    assert all(c in "0123456789abcdef" for c in spec.revision)
+    assert spec.revision not in ("main", "master")
+
+
+def test_fineweb_shards_are_explicit_and_ordered():
+    """An implicit shard set would make the token stream irreproducible."""
+    spec = CorpusSpec.from_yaml("configs/corpora/fineweb_edu.yaml")
+    assert len(spec.shards) >= 1
+    assert spec.ordered_shards == tuple(sorted(spec.shards))
+    assert all(s.endswith(".parquet") for s in spec.ordered_shards)
+    # the recorded metadata carries the pin, so runs can be audited later
+    meta = spec.metadata()
+    assert meta["revision"] == spec.revision
+    assert meta["n_shards"] == len(spec.shards)

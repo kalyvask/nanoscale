@@ -189,6 +189,7 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description="M1.5 tokenizer study.")
     ap.add_argument("--dataset", default=None)
     ap.add_argument("--input", default=None)
+    ap.add_argument("--text-field", default="text", help="JSONL field holding the text")
     ap.add_argument("--vocab-sizes", default="1024,4096,8192,16384")
     ap.add_argument("--sample-mb", type=float, default=5.0,
                     help="cap the tokenizer-training sample (MB)")
@@ -203,7 +204,18 @@ def main(argv: list[str] | None = None) -> None:
     args = ap.parse_args(argv)
 
     corpus_path, name = load_corpus_path(args)
-    text = corpus_path.read_text(encoding="utf-8")
+    # Build the study text from *documents*, not the raw file: reading a JSONL corpus
+    # verbatim would train the tokenizer on JSON punctuation rather than on prose.
+    from nanoscale.data import iter_documents
+
+    budget = int((args.sample_mb + args.eval_mb) * 1_000_000) if args.sample_mb else None
+    parts, total = [], 0
+    for doc in iter_documents(corpus_path, text_field=args.text_field):
+        parts.append(doc)
+        total += len(doc.encode("utf-8"))
+        if budget and total >= budget:
+            break
+    text = "\n\n".join(parts)
     vocab_sizes = [int(v) for v in args.vocab_sizes.split(",") if v]
     sample_bytes = int(args.sample_mb * 1_000_000) if args.sample_mb else None
     eval_bytes = int(args.eval_mb * 1_000_000)

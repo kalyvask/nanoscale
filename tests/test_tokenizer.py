@@ -63,6 +63,50 @@ def test_special_token_not_produced_by_merges(bpe):
     assert all(i not in bpe._special_inv for i in ids)
 
 
+def _reference_train_merges(text, num_merges):
+    """Deliberately naive BPE: recompute every pair count on every merge.
+
+    The optimized trainer maintains incremental counts and a lazy heap; this exists
+    only to prove the optimization did not change the learned merges.
+    """
+    from nanoscale.tokenizer import SPLIT_PATTERN, _merge
+
+    words = {}
+    for chunk in SPLIT_PATTERN.findall(text):
+        key = tuple(chunk.encode("utf-8"))
+        words[key] = words.get(key, 0) + 1
+
+    merges = {}
+    for i in range(num_merges):
+        counts = {}
+        for seq, freq in words.items():
+            for pair in zip(seq, seq[1:]):
+                counts[pair] = counts.get(pair, 0) + freq
+        if not counts:
+            break
+        top = max(counts.values())
+        best = min(p for p, c in counts.items() if c == top)
+        new_id = BYTE_VOCAB + i
+        merges[best] = new_id
+        rebuilt = {}
+        for seq, freq in words.items():
+            m = tuple(_merge(list(seq), best, new_id))
+            rebuilt[m] = rebuilt.get(m, 0) + freq
+        words = rebuilt
+    return merges
+
+
+@pytest.mark.parametrize("vocab_size", [280, 320, 400])
+def test_optimized_trainer_matches_naive_reference(vocab_size):
+    """Incremental counting must learn exactly the same merges, in the same order."""
+    text = (TRAIN_TEXT[:20000]
+            + "some other words: alpha beta gamma delta epsilon zeta 12345 !!! ")
+    fast = Tokenizer.train(text, vocab_size=vocab_size)
+    slow = _reference_train_merges(text, num_merges=vocab_size - BYTE_VOCAB - 1)
+    assert fast.merges == slow
+    assert list(fast.merges) == list(slow)  # same order, not just same set
+
+
 def test_training_is_deterministic():
     a = Tokenizer.train(TRAIN_TEXT, vocab_size=350)
     b = Tokenizer.train(TRAIN_TEXT, vocab_size=350)
