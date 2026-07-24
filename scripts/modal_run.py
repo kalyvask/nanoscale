@@ -77,15 +77,25 @@ if modal is not None:
         tok = (Tokenizer.load(tokenizer_json) if tokenizer_json
                else Tokenizer.bytes_tokenizer())
 
-        # bound ingestion by an approximate token budget
-        approx_bytes_per_token = 4
-        budget_bytes = max_tokens * approx_bytes_per_token
+        # bound ingestion by an approximate token budget (compression ~4.25 bytes/token)
+        approx_bytes_per_token = 4.25
+        budget_bytes = int(max_tokens * approx_bytes_per_token)
+
+        import time as _time
 
         def bounded():
-            total = 0
+            total = docs = 0
+            next_report = 250_000_000
+            t0 = _time.time()
             for doc in iter_corpus(spec):
                 yield doc
                 total += len(doc.encode("utf-8"))
+                docs += 1
+                if total >= next_report:
+                    rate = total / max(_time.time() - t0, 1e-9) / 1e6
+                    print(f"  ingested {total/1e9:.2f} GB, {docs:,} docs, "
+                          f"{rate:.2f} MB/s", flush=True)
+                    next_report += 250_000_000
                 if total >= budget_bytes:
                     return
 
