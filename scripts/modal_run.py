@@ -216,7 +216,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--action", default="plan",
                     choices=["plan", "prepare", "pilot", "study", "results",
-                             "gpu-smoke", "poll", "probe"])
+                             "gpu-smoke", "poll", "probe", "opt-probe"])
     ap.add_argument("--probe-steps", type=int, default=500,
                     help="steps per scale for the throughput probe")
     ap.add_argument("--config", default="configs/base.yaml")
