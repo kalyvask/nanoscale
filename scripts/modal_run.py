@@ -53,8 +53,8 @@ if modal is not None:
             "nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04", add_python="3.11"
         )
         .pip_install("torch", "numpy", "pyyaml", "requests", "datasets")
-        .add_local_dir(".", "/root/nanoscale", ignore=_ignore, copy=True)
-        .run_commands("pip install -e /root/nanoscale")
+        .add_local_dir(".", "/root/repo", ignore=_ignore, copy=True)
+        .run_commands("pip install -e /root/repo")
     )
     app = modal.App(APP_NAME)
 
@@ -63,7 +63,7 @@ if modal is not None:
     def prepare_remote(corpus_yaml: str, tokenizer_json: str | None,
                        max_tokens: int, dataset_name: str = "fineweb_edu") -> dict:
         """Tokenize the pinned corpus into the Volume. CPU only."""
-        os.chdir("/root/nanoscale")
+        os.chdir("/root/repo")
         from nanoscale.corpora import CorpusSpec, iter_corpus, write_shard_manifest
         from nanoscale.data import prepare_streaming
         from nanoscale.tokenizer import Tokenizer
@@ -97,7 +97,7 @@ if modal is not None:
     def train_batch(config_dicts: list[dict], dataset_name: str,
                     protocol_hash: str | None = None) -> list[dict]:
         """Train several configs in one container, so cold start is amortized."""
-        os.chdir("/root/nanoscale")
+        os.chdir("/root/repo")
         from nanoscale.config import Config
         from nanoscale.train import train
 
@@ -118,7 +118,7 @@ if modal is not None:
 
     @app.function(image=image, volumes={VOL_MOUNT: volume}, timeout=60 * 30)
     def fetch_results() -> list[dict]:
-        os.chdir("/root/nanoscale")
+        os.chdir("/root/repo")
         from nanoscale.analysis import load_runs
 
         return load_runs(Path(VOL_MOUNT) / "experiments")
@@ -143,7 +143,7 @@ def main() -> None:
 
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--action", default="plan",
-                    choices=["plan", "prepare", "pilot", "study", "results"])
+                    choices=["plan", "prepare", "pilot", "study", "results", "gpu-smoke"])
     ap.add_argument("--config", default="configs/base.yaml")
     ap.add_argument("--corpus", default="configs/corpora/fineweb_edu.yaml")
     ap.add_argument("--tokenizer", default=None)
@@ -165,15 +165,15 @@ def main() -> None:
             names = ", ".join(r.config.name for r in b)
             print(f"  batch {i}: {names}")
         if not args.execute or args.action == "plan":
-            print("\nPLAN ONLY: nothing dispatched. Re-run with "
-                  "`modal run scripts/modal_run.py --action pilot --execute`.")
+            print("\nPLAN ONLY: nothing dispatched. Re-run with --execute.")
             return
         if modal is None:
             raise SystemExit("modal is not installed")
         results = []
-        for b in batches:
-            results.extend(train_batch.remote(
-                [r.config.to_dict() for r in b], args.dataset_name, phash))
+        with modal.enable_output(), app.run():
+            for b in batches:
+                results.extend(train_batch.remote(
+                    [r.config.to_dict() for r in b], args.dataset_name, phash))
         print(json.dumps(results, indent=2))
         return
 
@@ -185,13 +185,34 @@ def main() -> None:
             print(f"PLAN ONLY: would tokenize up to {args.max_tokens:,} tokens from "
                   f"{args.corpus} into volume '{VOLUME_NAME}'. Pass --execute.")
             return
-        meta = prepare_remote.remote(args.corpus, args.tokenizer,
-                                     args.max_tokens, args.dataset_name)
+        with modal.enable_output(), app.run():
+            meta = prepare_remote.remote(args.corpus, args.tokenizer,
+                                         args.max_tokens, args.dataset_name)
         print(json.dumps(meta, indent=2))
         return
 
+    if args.action == "gpu-smoke":
+        # cheapest possible GPU-path check: one tiny run on a small prepared dataset,
+        # to validate the container, training and volume write before the real pilot.
+        from nanoscale.config import load_config
+
+        cfg = load_config(args.config).override(
+            name="gpu_smoke", study_id="gpu_smoke", scale_id="S", recipe_id="baseline",
+            n_layer=2, n_embd=128, n_head=4, batch_size=16, max_steps=20,
+            target_train_tokens=None, eval_interval=10, eval_iters=5, save_checkpoint=False,
+        )
+        if not args.execute:
+            print(f"PLAN ONLY: would run one 20-step GPU smoke on '{args.dataset_name}'. "
+                  f"Pass --execute.")
+            return
+        with modal.enable_output(), app.run():
+            res = train_batch.remote([cfg.to_dict()], args.dataset_name, "gpu_smoke")
+        print(json.dumps(res, indent=2))
+        return
+
     if args.action == "results":
-        rows = fetch_results.remote()
+        with modal.enable_output(), app.run():
+            rows = fetch_results.remote()
         print(f"{len(rows)} completed runs in the volume")
         for r in rows[:20]:
             print(f"  {r.get('scale_id')}/{r.get('recipe_id')}/"
