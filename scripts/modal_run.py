@@ -152,12 +152,58 @@ def build_pending(pilot: bool, base_config: str, batch_size: int):
     return runs, batches, phash
 
 
+CALLS_DIR = Path("experiments/.modal_calls")
+
+
+def _deployed(fn_name: str):
+    """Look up a function from the DEPLOYED app, so calls survive client disconnects.
+
+    Deploy first with: modal deploy scripts/modal_run.py
+    """
+    return modal.Function.from_name(APP_NAME, fn_name)
+
+
+def _save_calls(tag: str, ids: list[str]) -> Path:
+    CALLS_DIR.mkdir(parents=True, exist_ok=True)
+    p = CALLS_DIR / f"{tag}.json"
+    p.write_text(json.dumps(ids), encoding="utf-8")
+    return p
+
+
+def _load_calls(tag: str) -> list[str]:
+    p = CALLS_DIR / f"{tag}.json"
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else []
+
+
+def _poll(tag: str) -> None:
+    ids = _load_calls(tag)
+    if not ids:
+        print(f"no saved calls for '{tag}'")
+        return
+    done, running, results = 0, 0, []
+    for cid in ids:
+        fc = modal.FunctionCall.from_id(cid)
+        try:
+            res = fc.get(timeout=0)
+            done += 1
+            results.extend(res if isinstance(res, list) else [res])
+        except TimeoutError:
+            running += 1
+        except Exception as exc:  # noqa: BLE001 - surface a failed call, keep polling
+            print(f"  call {cid[:12]} failed: {exc}")
+            done += 1
+    print(f"'{tag}': {done}/{len(ids)} calls finished, {running} still running")
+    if results:
+        print(json.dumps(results, indent=2))
+
+
 def main() -> None:
     import argparse
 
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--action", default="plan",
-                    choices=["plan", "prepare", "pilot", "study", "results", "gpu-smoke"])
+                    choices=["plan", "prepare", "pilot", "study", "results",
+                             "gpu-smoke", "poll"])
     ap.add_argument("--config", default="configs/base.yaml")
     ap.add_argument("--corpus", default="configs/corpora/fineweb_edu.yaml")
     ap.add_argument("--tokenizer", default=None)
@@ -165,49 +211,53 @@ def main() -> None:
     ap.add_argument("--max-tokens", type=int, default=2_000_000_000)
     ap.add_argument("--batch-size", type=int, default=7,
                     help="runs per container; amortizes cold start")
+    ap.add_argument("--poll-tag", default=None, help="which spawned job to poll")
     ap.add_argument("--execute", action="store_true",
                     help="actually spend compute (otherwise plan only)")
     args = ap.parse_args()
 
-    if args.action in ("plan", "pilot", "study"):
+    # --- planning (no modal needed) ---
+    if args.action in ("plan", "pilot", "study") and not args.execute:
         pilot = args.action == "pilot"
         runs, batches, phash = build_pending(pilot, args.config, args.batch_size)
         print(f"protocol_hash: {phash}")
         print(f"{len(runs)} runs in {len(batches)} container batches "
               f"(batch size {args.batch_size}, gpu {GPU_TYPE})")
         for i, b in enumerate(batches, 1):
-            names = ", ".join(r.config.name for r in b)
-            print(f"  batch {i}: {names}")
-        if not args.execute or args.action == "plan":
-            print("\nPLAN ONLY: nothing dispatched. Re-run with --execute.")
-            return
-        if modal is None:
-            raise SystemExit("modal is not installed")
-        results = []
-        with modal.enable_output(), app.run():
-            for b in batches:
-                results.extend(train_batch.remote(
-                    [r.config.to_dict() for r in b], args.dataset_name, phash))
-        print(json.dumps(results, indent=2))
+            print(f"  batch {i}: " + ", ".join(r.config.name for r in b))
+        print("\nPLAN ONLY: nothing dispatched. Re-run with --execute.")
         return
 
     if modal is None:
         raise SystemExit("modal is not installed; `pip install modal`")
 
+    # --- detached execution against the DEPLOYED app ---
+    if args.action in ("pilot", "study"):
+        pilot = args.action == "pilot"
+        runs, batches, phash = build_pending(pilot, args.config, args.batch_size)
+        fn = _deployed("train_batch")
+        ids = []
+        for b in batches:
+            call = fn.spawn([r.config.to_dict() for r in b], args.dataset_name, phash)
+            ids.append(call.object_id)
+            print(f"  spawned {call.object_id}: " + ", ".join(r.config.name for r in b))
+        tag = "pilot" if pilot else "study"
+        path = _save_calls(tag, ids)
+        print(f"\n{len(ids)} batches spawned detached. Poll with:\n"
+              f"  python scripts/modal_run.py --action poll --poll-tag {tag}\n"
+              f"(call ids saved to {path})")
+        return
+
     if args.action == "prepare":
-        if not args.execute:
-            print(f"PLAN ONLY: would tokenize up to {args.max_tokens:,} tokens from "
-                  f"{args.corpus} into volume '{VOLUME_NAME}'. Pass --execute.")
-            return
-        with modal.enable_output(), app.run():
-            meta = prepare_remote.remote(args.corpus, args.tokenizer,
-                                         args.max_tokens, args.dataset_name)
-        print(json.dumps(meta, indent=2))
+        call = _deployed("prepare_remote").spawn(
+            args.corpus, args.tokenizer, args.max_tokens, args.dataset_name)
+        _save_calls("prepare", [call.object_id])
+        print(f"prepare spawned detached: {call.object_id}\n"
+              f"runs on Modal independent of this machine. Poll with:\n"
+              f"  python scripts/modal_run.py --action poll --poll-tag prepare")
         return
 
     if args.action == "gpu-smoke":
-        # cheapest possible GPU-path check: one tiny run on a small prepared dataset,
-        # to validate the container, training and volume write before the real pilot.
         from nanoscale.config import load_config
 
         cfg = load_config(args.config).override(
@@ -215,20 +265,22 @@ def main() -> None:
             n_layer=2, n_embd=128, n_head=4, batch_size=16, max_steps=20,
             target_train_tokens=None, eval_interval=10, eval_iters=5, save_checkpoint=False,
         )
-        if not args.execute:
-            print(f"PLAN ONLY: would run one 20-step GPU smoke on '{args.dataset_name}'. "
-                  f"Pass --execute.")
-            return
-        with modal.enable_output(), app.run():
-            res = train_batch.remote([cfg.to_dict()], args.dataset_name, "gpu_smoke")
-        print(json.dumps(res, indent=2))
+        call = _deployed("train_batch").spawn([cfg.to_dict()], args.dataset_name,
+                                              "gpu_smoke")
+        _save_calls("gpu_smoke", [call.object_id])
+        print(f"gpu-smoke spawned: {call.object_id}. Poll with --action poll "
+              f"--poll-tag gpu_smoke")
+        return
+
+    if args.action == "poll":
+        _poll(args.poll_tag or "prepare")
         return
 
     if args.action == "results":
-        with modal.enable_output(), app.run():
-            rows = fetch_results.remote()
+        call = _deployed("fetch_results").spawn()
+        rows = call.get()
         print(f"{len(rows)} completed runs in the volume")
-        for r in rows[:20]:
+        for r in rows[:30]:
             print(f"  {r.get('scale_id')}/{r.get('recipe_id')}/"
                   f"seed{r.get('init_seed')}: {r.get('final_val_loss')}")
 
