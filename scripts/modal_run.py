@@ -106,11 +106,8 @@ if modal is not None:
         volume.commit()
         return meta
 
-    @app.function(image=image, gpu=GPU_TYPE, volumes={VOL_MOUNT: volume},
-                  timeout=60 * 60 * 6)
-    def train_batch(config_dicts: list[dict], dataset_name: str,
+    def _train_many(config_dicts: list[dict], dataset_name: str,
                     protocol_hash: str | None = None) -> list[dict]:
-        """Train several configs in one container, so cold start is amortized."""
         os.chdir("/root/repo")
         from nanoscale.config import Config
         from nanoscale.train import train
@@ -120,15 +117,31 @@ if modal is not None:
         out = []
         for d in config_dicts:
             cfg = Config.from_dict(d)
-            print(f"=== {cfg.name} ===", flush=True)
+            print(f"=== {cfg.name} (batch {cfg.batch_size}) ===", flush=True)
             summary = train(cfg, base_dir=base_dir, data_dir=data_dir,
                             protocol_hash=protocol_hash)
-            out.append({k: summary.get(k) for k in
-                        ("run_id", "status", "scale_id", "recipe_id", "init_seed",
-                         "final_val_loss", "bits_per_byte", "tokens_per_sec",
-                         "measured_tflops", "peak_memory_bytes")})
+            row = {k: summary.get(k) for k in
+                   ("run_id", "status", "scale_id", "recipe_id", "init_seed",
+                    "final_val_loss", "bits_per_byte", "tokens_per_sec",
+                    "measured_tflops", "peak_memory_bytes")}
+            row["name"] = cfg.name
+            row["batch_size"] = cfg.batch_size
+            out.append(row)
             volume.commit()
         return out
+
+    @app.function(image=image, gpu="H100", volumes={VOL_MOUNT: volume}, timeout=60 * 60 * 6)
+    def train_batch(config_dicts, dataset_name, protocol_hash=None):
+        """Train several configs in one H100 container, so cold start is amortized."""
+        return _train_many(config_dicts, dataset_name, protocol_hash)
+
+    @app.function(image=image, gpu="A10G", volumes={VOL_MOUNT: volume}, timeout=60 * 60 * 6)
+    def train_batch_a10g(config_dicts, dataset_name, protocol_hash=None):
+        return _train_many(config_dicts, dataset_name, protocol_hash)
+
+    @app.function(image=image, gpu="L40S", volumes={VOL_MOUNT: volume}, timeout=60 * 60 * 6)
+    def train_batch_l40s(config_dicts, dataset_name, protocol_hash=None):
+        return _train_many(config_dicts, dataset_name, protocol_hash)
 
     @app.function(image=image, volumes={VOL_MOUNT: volume}, timeout=60 * 30)
     def fetch_results() -> list[dict]:
@@ -293,6 +306,39 @@ def main() -> None:
         call = _deployed("train_batch").spawn(cfgs, args.dataset_name, "probe")
         _save_calls("probe", [call.object_id])
         print(f"probe spawned: {call.object_id}. Poll with --action poll --poll-tag probe")
+        return
+
+    if args.action == "opt-probe":
+        # Two levers against the 4x-over-estimate cost: (1) bigger batch to raise MFU on
+        # H100, (2) a cheaper GPU where small models aren't compute-bound. Each mini-run
+        # trains a fixed ~8M tokens so throughput is comparable across batch sizes.
+        from nanoscale.config import load_config
+        from nanoscale.planning import SIZES
+
+        base = load_config(args.config)
+        PROBE_TOKENS = 8_000_000
+
+        def mk(scale, bs, tag):
+            steps = max(20, PROBE_TOKENS // (bs * base.block_size))
+            return base.override(
+                **SIZES[scale], name=f"opt-{scale}-b{bs}-{tag}", study_id="opt_probe",
+                scale_id=scale, recipe_id="baseline", batch_size=bs,
+                target_train_tokens=None, max_steps=steps, eval_interval=steps,
+                eval_iters=5, save_checkpoint=False,
+            ).to_dict()
+
+        h100 = [mk("S", 32, "h100"), mk("S", 128, "h100"), mk("S", 256, "h100"),
+                mk("M", 128, "h100")]
+        a10g = [mk("S", 64, "a10g")]         # 24GB card: keep batch modest
+        l40s = [mk("S", 128, "l40s")]        # 48GB card
+        ids = [
+            _deployed("train_batch").spawn(h100, args.dataset_name, "opt_probe").object_id,
+            _deployed("train_batch_a10g").spawn(a10g, args.dataset_name, "opt_probe").object_id,
+            _deployed("train_batch_l40s").spawn(l40s, args.dataset_name, "opt_probe").object_id,
+        ]
+        _save_calls("opt_probe", ids)
+        print(f"opt-probe spawned on H100/A10G/L40S ({len(ids)} calls). "
+              f"Poll with --action poll --poll-tag opt_probe")
         return
 
     if args.action == "poll":
