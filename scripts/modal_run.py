@@ -227,6 +227,10 @@ def main() -> None:
     ap.add_argument("--batch-size", type=int, default=7,
                     help="runs per container; amortizes cold start")
     ap.add_argument("--poll-tag", default=None, help="which spawned job to poll")
+    ap.add_argument("--scales", default=None, help="comma list, e.g. S or S,M (study only)")
+    ap.add_argument("--recipes", default=None,
+                    help="comma list of recipe ids to run (study only); omit for all")
+    ap.add_argument("--tag", default=None, help="override the saved-call tag")
     ap.add_argument("--execute", action="store_true",
                     help="actually spend compute (otherwise plan only)")
     args = ap.parse_args()
@@ -249,14 +253,25 @@ def main() -> None:
     # --- detached execution against the DEPLOYED app ---
     if args.action in ("pilot", "study"):
         pilot = args.action == "pilot"
-        runs, batches, phash = build_pending(pilot, args.config, args.batch_size)
+        runs, _, phash = build_pending(pilot, args.config, args.batch_size)
+        # optional scale/recipe filtering (e.g. run only the recipes not already covered
+        # by the pilot, at S, to avoid paying twice for identical baseline runs)
+        if args.scales:
+            keep = set(args.scales.split(","))
+            runs = [r for r in runs if r.size in keep]
+        if args.recipes:
+            keep = set(args.recipes.split(","))
+            runs = [r for r in runs if r.recipe in keep]
+        bs = args.batch_size
+        batches = [runs[i:i + bs] for i in range(0, len(runs), bs)]
+        print(f"protocol_hash: {phash}; {len(runs)} runs in {len(batches)} batches")
         fn = _deployed("train_batch")
         ids = []
         for b in batches:
             call = fn.spawn([r.config.to_dict() for r in b], args.dataset_name, phash)
             ids.append(call.object_id)
             print(f"  spawned {call.object_id}: " + ", ".join(r.config.name for r in b))
-        tag = "pilot" if pilot else "study"
+        tag = args.tag or ("pilot" if pilot else "study")
         path = _save_calls(tag, ids)
         print(f"\n{len(ids)} batches spawned detached. Poll with:\n"
               f"  python scripts/modal_run.py --action poll --poll-tag {tag}\n"
