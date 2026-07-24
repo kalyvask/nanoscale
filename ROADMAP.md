@@ -228,6 +228,31 @@ reviewed. This is the artifact the GPU gate approves.
 
 ---
 
+## Power pilot result (2026-07-24) — the study is powered
+
+10 runs on FineWeb-Edu at S (batch 128): baseline + no_swiglu, 5 seeds each. Real data,
+first GPU training of the project.
+
+| | mean val-loss | sd across seeds | bits/byte |
+|---|---|---|---|
+| baseline | 3.8234 | 0.0060 | 1.288 |
+| no_swiglu | 3.8459 | 0.0022 | 1.297 |
+
+Paired effect (no_swiglu - baseline): **+0.0225 nats**, paired sd 0.0053, 95% CI
+[0.016, 0.029]. All five paired deltas positive.
+
+- **Seed noise floor is low** (baseline sd 0.006), so the equivalence margin of 0.01
+  nats is well-calibrated (~1.7x noise). Kept.
+- **A representative quality effect is ~4x the noise** and resolves cleanly at 5 seeds;
+  at the planned 3 seeds the standard error is ~0.003, so effects down to ~0.01 nats are
+  resolvable. Effects smaller than that would read `unresolved` -- a legitimate finding.
+- Sustained throughput ~429k tok/s (below the 509k burst probe, eval overhead), so the
+  real pilot cost was ~$8.6 and S+M is ~$65 sustained.
+- bits/byte ~1.29 confirms the models genuinely learned (healthy for 17M at D/N=20).
+
+Verdict: the transfer study can resolve effects of realistic magnitude and is worth
+funding. The instrument, the protocol, and the analysis are all validated on real data.
+
 ## GPU SPENDING GATE (explicit approval required)
 Do not launch large runs until:
 - [ ] Estimated GPU hours and cost approved
