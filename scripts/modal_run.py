@@ -43,7 +43,11 @@ IGNORE = [".venv", "__pycache__", ".git", "experiments", "data", "analysis",
 
 
 def _ignore(path) -> bool:
-    return any(p in IGNORE for p in str(path).split("/"))
+    # normalize Windows backslashes so .git/.venv/etc are actually excluded; otherwise
+    # the whole .git and .venv trees get uploaded and a concurrent git op can corrupt
+    # the build snapshot ("modified during build process")
+    parts = str(path).replace("\\", "/").split("/")
+    return any(p in IGNORE for p in parts)
 
 
 if modal is not None:
