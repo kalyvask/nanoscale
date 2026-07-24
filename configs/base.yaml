@@ -21,7 +21,10 @@ tie_weights: true
 attention_backend: sdpa
 
 tokens_per_param: 20     # D/N, held constant across sizes
-batch_size: 32
+# batch 128 chosen from an opt-probe: best tokens/dollar on H100 (464 M/$, vs 345 at
+# batch 32; cheaper A10G/L40S cards were worse value). Held constant across the study.
+# LR is left at 3e-4 (conservative for this batch); revisit LR tuning before the L tier.
+batch_size: 128
 grad_accum: 1
 max_steps: null          # derived from tokens_per_param * n_params
 warmup_frac: 0.05

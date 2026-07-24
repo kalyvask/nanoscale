@@ -12,9 +12,21 @@ green. Corpus pinned (FineWeb-Edu `87f09149`, 4 shards), tokenizer frozen (vocab
 hash `03be9e0e34d77bec`), `protocol_hash` = `31f6c08926236ff0`, Modal runner built.
 Remaining before the pilot: tokenize the corpus once, sized for L. No GPU runs yet.
 
-**Cost note:** the estimate rose from ~$59 to ~$95 (H100) after balancing seeds to 3/3/3
-and correcting FLOPs to include the output projection. The L tier is ~87% of it. Against
-a $30 balance, S+M fits (~$12) and L does not.
+**Cost note (measured, not estimated):** a throughput probe on Modal H100 showed small
+models hit only 10-28% of peak (S 37, M 68, L 98 TFLOP/s), so the real study is ~4x the
+FLOP estimate. An opt-probe then found batch 128 is the best value (464 Mtokens/$ vs 345
+at batch 32; A10G/L40S were worse value than H100). Re-priced with batch 128:
+
+| | GPU-h | H100 $ |
+|---|---|---|
+| Pilot (10 S runs) | 1.9 | ~$7 |
+| S tier (21) | 3.9 | ~$15 |
+| S+M (42) | 15.1 | ~$60 |
+| Full 63-run | 90 | ~$356 |
+
+L is ~85% of the full cost. Against a $30 balance the pilot fits; S+M does not. The
+full study needs the CS336 grant. Corpus prepared (2.24B train tokens, dataset hash
+612fb16f18c040e3); batch 128 moves protocol_hash.
 
 Local commit checkpoints (no push yet):
 1. `docs: define proxy-validity study`
