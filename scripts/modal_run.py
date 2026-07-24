@@ -203,7 +203,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--action", default="plan",
                     choices=["plan", "prepare", "pilot", "study", "results",
-                             "gpu-smoke", "poll"])
+                             "gpu-smoke", "poll", "probe"])
+    ap.add_argument("--probe-steps", type=int, default=500,
+                    help="steps per scale for the throughput probe")
     ap.add_argument("--config", default="configs/base.yaml")
     ap.add_argument("--corpus", default="configs/corpora/fineweb_edu.yaml")
     ap.add_argument("--tokenizer", default=None)
@@ -270,6 +272,27 @@ def main() -> None:
         _save_calls("gpu_smoke", [call.object_id])
         print(f"gpu-smoke spawned: {call.object_id}. Poll with --action poll "
               f"--poll-tag gpu_smoke")
+        return
+
+    if args.action == "probe":
+        # Measure real per-scale throughput on a few hundred steps, so the study can be
+        # priced from measured tokens/sec instead of an optimistic FLOP estimate. Small
+        # models underutilize a big GPU, and this is where that shows up.
+        from nanoscale.config import load_config
+        from nanoscale.planning import SIZES
+
+        base = load_config(args.config)
+        cfgs = []
+        for scale, geo in SIZES.items():
+            cfgs.append(base.override(
+                **geo, name=f"probe-{scale}", study_id="probe", scale_id=scale,
+                recipe_id="baseline", target_train_tokens=None,
+                max_steps=args.probe_steps, eval_interval=max(1, args.probe_steps // 2),
+                eval_iters=20, save_checkpoint=False,
+            ).to_dict())
+        call = _deployed("train_batch").spawn(cfgs, args.dataset_name, "probe")
+        _save_calls("probe", [call.object_id])
+        print(f"probe spawned: {call.object_id}. Poll with --action poll --poll-tag probe")
         return
 
     if args.action == "poll":
