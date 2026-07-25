@@ -1,0 +1,226 @@
+{
+  "metric": "final_val_loss",
+  "equivalence_margin": 0.01,
+  "n_runs": 21,
+  "scales": [
+    "S"
+  ],
+  "recipes": [
+    "baseline",
+    "no_qknorm",
+    "no_rmsnorm",
+    "no_rope",
+    "no_swiglu",
+    "no_zloss",
+    "untied"
+  ],
+  "protocol": {
+    "protocol_hashes": [
+      "e69a251d24214320"
+    ],
+    "eval_set_hashes": [
+      "pooled"
+    ],
+    "tokenizer_hashes": [
+      "03be9e0e34d77bec"
+    ],
+    "consistent": true
+  },
+  "seed_noise": {
+    "S": {
+      "n": 3,
+      "sd": 0.004653619651525355,
+      "range": 0.00926507949829114,
+      "mean": 3.819815514087677
+    }
+  },
+  "paired_effects": {
+    "S": {
+      "no_swiglu": {
+        "n_pairs": 3,
+        "deltas": [
+          0.025978350639343173,
+          0.02893554210662863,
+          0.022675459384918106
+        ],
+        "mean_delta": 0.025863117376963302,
+        "ci_low": 0.022675459384918106,
+        "ci_high": 0.02893554210662863,
+        "verdict": "hurts_to_remove"
+      },
+      "no_rope": {
+        "n_pairs": 3,
+        "deltas": [
+          0.0693388462066653,
+          0.07381378650665305,
+          0.05653052330017072
+        ],
+        "mean_delta": 0.06656105200449636,
+        "ci_low": 0.05653052330017072,
+        "ci_high": 0.07381378650665305,
+        "verdict": "hurts_to_remove"
+      },
+      "no_rmsnorm": {
+        "n_pairs": 3,
+        "deltas": [
+          0.0034433245658873624,
+          0.004947583675384504,
+          -0.0023479485511779252
+        ],
+        "mean_delta": 0.0020143198966979803,
+        "ci_low": -0.0023479485511779252,
+        "ci_high": 0.004947583675384504,
+        "verdict": "practically_equal"
+      },
+      "no_qknorm": {
+        "n_pairs": 3,
+        "deltas": [
+          0.04966324329376226,
+          0.0426336431503298,
+          0.041508936882018954
+        ],
+        "mean_delta": 0.04460194110870367,
+        "ci_low": 0.041508936882018954,
+        "ci_high": 0.04966324329376226,
+        "verdict": "hurts_to_remove"
+      },
+      "no_zloss": {
+        "n_pairs": 3,
+        "deltas": [
+          -0.014926164150237842,
+          -0.017055954933166362,
+          -0.014600002765655429
+        ],
+        "mean_delta": -0.015527373949686544,
+        "ci_low": -0.017055954933166362,
+        "ci_high": -0.014600002765655429,
+        "verdict": "helps_to_remove"
+      },
+      "untied": {
+        "n_pairs": 3,
+        "deltas": [
+          -0.014091613292694039,
+          -0.0041304373741146705,
+          -0.023367464542388916
+        ],
+        "mean_delta": -0.013863171736399208,
+        "ci_low": -0.023367464542388916,
+        "ci_high": -0.0041304373741146705,
+        "verdict": "unresolved"
+      }
+    }
+  },
+  "regret": [],
+  "selection_probability": [],
+  "rank_transfer": [],
+  "trajectories": {
+    "no_qknorm": {
+      "recipe": "no_qknorm",
+      "per_scale": {
+        "S": {
+          "n_pairs": 3,
+          "deltas": [
+            0.04966324329376226,
+            0.0426336431503298,
+            0.041508936882018954
+          ],
+          "mean_delta": 0.04460194110870367,
+          "ci_low": 0.041508936882018954,
+          "ci_high": 0.04966324329376226,
+          "verdict": "hurts_to_remove"
+        }
+      },
+      "trajectory": "insufficient_scales"
+    },
+    "no_rmsnorm": {
+      "recipe": "no_rmsnorm",
+      "per_scale": {
+        "S": {
+          "n_pairs": 3,
+          "deltas": [
+            0.0034433245658873624,
+            0.004947583675384504,
+            -0.0023479485511779252
+          ],
+          "mean_delta": 0.0020143198966979803,
+          "ci_low": -0.0023479485511779252,
+          "ci_high": 0.004947583675384504,
+          "verdict": "practically_equal"
+        }
+      },
+      "trajectory": "insufficient_scales"
+    },
+    "no_rope": {
+      "recipe": "no_rope",
+      "per_scale": {
+        "S": {
+          "n_pairs": 3,
+          "deltas": [
+            0.0693388462066653,
+            0.07381378650665305,
+            0.05653052330017072
+          ],
+          "mean_delta": 0.06656105200449636,
+          "ci_low": 0.05653052330017072,
+          "ci_high": 0.07381378650665305,
+          "verdict": "hurts_to_remove"
+        }
+      },
+      "trajectory": "insufficient_scales"
+    },
+    "no_swiglu": {
+      "recipe": "no_swiglu",
+      "per_scale": {
+        "S": {
+          "n_pairs": 3,
+          "deltas": [
+            0.025978350639343173,
+            0.02893554210662863,
+            0.022675459384918106
+          ],
+          "mean_delta": 0.025863117376963302,
+          "ci_low": 0.022675459384918106,
+          "ci_high": 0.02893554210662863,
+          "verdict": "hurts_to_remove"
+        }
+      },
+      "trajectory": "insufficient_scales"
+    },
+    "no_zloss": {
+      "recipe": "no_zloss",
+      "per_scale": {
+        "S": {
+          "n_pairs": 3,
+          "deltas": [
+            -0.014926164150237842,
+            -0.017055954933166362,
+            -0.014600002765655429
+          ],
+          "mean_delta": -0.015527373949686544,
+          "ci_low": -0.017055954933166362,
+          "ci_high": -0.014600002765655429,
+          "verdict": "helps_to_remove"
+        }
+      },
+      "trajectory": "insufficient_scales"
+    },
+    "untied": {
+      "recipe": "untied",
+      "per_scale": {
+        "S": {
+          "n_pairs": 3,
+          "deltas": [
+            -0.014091613292694039,
+            -0.0041304373741146705,
+            -0.023367464542388916
+          ],
+          "mean_delta": -0.013863171736399208,
+          "ci_low": -0.023367464542388916,
+          "ci_high": -0.0041304373741146705,
+          "verdict": "unresolved"
+        }
+      },
+      "trajectory": "insufficient_scales"
+    }
+  }
+}

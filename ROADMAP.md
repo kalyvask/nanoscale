@@ -253,6 +253,34 @@ Paired effect (no_swiglu - baseline): **+0.0225 nats**, paired sd 0.0053, 95% CI
 Verdict: the transfer study can resolve effects of realistic magnitude and is worth
 funding. The instrument, the protocol, and the analysis are all validated on real data.
 
+## S-tier ablation result (2026-07-24) — first real finding
+
+Full 7-recipe x 3-seed grid at S (17M) on FineWeb-Edu, batch 128, D/N=20. Pools the
+pilot's baseline + no_swiglu with 15 runs for the other five recipes at matched seeds
+(same protocol_hash e69a251d24214320, tokenizer and eval set, so pooling is valid).
+Report: `analysis/s_tier/report.md`. Baseline seed-sd 0.0047; equivalence margin 0.01.
+
+Positive delta = removing the component raises val loss = the component **helps**.
+
+| intervention | delta (nats) | 95% CI | verdict |
+|---|---|---|---|
+| RoPE -> learned pos | +0.0666 | [+0.057, +0.074] | RoPE helps (large) |
+| QK-norm off | +0.0446 | [+0.042, +0.050] | QK-norm helps |
+| SwiGLU -> GeLU | +0.0259 | [+0.023, +0.029] | SwiGLU helps |
+| RMSNorm -> LayerNorm | +0.0020 | [-0.002, +0.005] | practically equal |
+| untie embeddings | -0.0139 | [-0.023, -0.004] | unresolved |
+| z-loss off | -0.0155 | [-0.017, -0.015] | z-loss **hurts** quality |
+
+Reading: at 17M, RoPE / QK-norm / SwiGLU are clear wins in that order; RMSNorm vs
+LayerNorm makes no measurable difference; z-loss slightly hurts val loss (expected -- it
+trades quality for stability, which barely matters at this scale/short run); untying is
+unresolved. Not everything is a win, and the equivalence-aware classifier says so rather
+than over-claiming.
+
+**This is single-scale.** It says nothing about transfer -- whether these rankings hold
+at 98M is the actual research question and is unfunded. z-loss hurting at S is a prime
+candidate for reversal at scale, which is exactly what the transfer study exists to test.
+
 ## GPU SPENDING GATE (explicit approval required)
 Do not launch large runs until:
 - [ ] Estimated GPU hours and cost approved
