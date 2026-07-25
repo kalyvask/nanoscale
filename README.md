@@ -93,8 +93,9 @@ recorded on every run:
 |---|---|
 | corpus | FineWeb-Edu, revision `87f09149ef4734204d70ed1d046ddc9ca3f2b8f9`, 4 explicit shards |
 | tokenizer | byte-level BPE, vocab 16,384, hash `03be9e0e34d77bec` |
-| protocol hash | `31f6c08926236ff0` |
+| protocol hash | `e69a251d24214320` |
 | budget | D/N = 20 on total parameters, one target per scale from the baseline geometry |
+| batch size | 128 (chosen from a throughput probe: best tokens/dollar on H100) |
 | grid | 7 recipes x 3 scales x 3 seeds = 63 runs |
 
 Two properties are enforced in code rather than left to care. Every recipe at a scale
@@ -120,16 +121,35 @@ byte as preregistered:
 | **bpe_16384** | 4.27 | 1.44 | 97.8% | **2.466** | 1,960 |
 
 Quality keeps improving with vocabulary while throughput falls by roughly a third from
-8K to 16K, which is a genuine trade rather than a free win. The pipeline itself is
-proven separately on CPU: a 977K-parameter model trains on TinyShakespeare (validation
-loss 5.49 to 2.06), generates text, and the seven-config grid runs end to end.
+8K to 16K, which is a genuine trade rather than a free win.
 
-**Not measured, and not claimed.** Nothing about rank transfer, selection regret, or
-whether any component's effect reverses with scale. No model has been trained on
-FineWeb-Edu. The CPU numbers come from a character-level corpus, one seed and a few
-hundred steps, and the tooling stamps them as plumbing in its own output rather than
-relying on the reader to remember. A working pipeline feels like progress on the
-research question and is not.
+**Measured — a real single-scale ablation.** The full seven-recipe grid at S (17M) on
+FineWeb-Edu, three seeds each, batch 128 (`analysis/s_tier/report.md`). Baseline
+seed-standard-deviation is 0.0047 nats; the equivalence margin is 0.01. Positive delta
+means removing the component raises validation loss, i.e. the component helps:
+
+| intervention | delta (nats) | 95% CI | verdict |
+|---|---|---|---|
+| RoPE -> learned pos | +0.0666 | [+.057, +.074] | RoPE helps (large) |
+| QK-norm off | +0.0446 | [+.042, +.050] | QK-norm helps |
+| SwiGLU -> GeLU | +0.0259 | [+.023, +.029] | SwiGLU helps |
+| RMSNorm -> LayerNorm | +0.0020 | [-.002, +.005] | practically equal |
+| untie embeddings | -0.0139 | [-.023, -.004] | unresolved |
+| z-loss off | -0.0155 | [-.017, -.015] | z-loss hurts quality here |
+
+Not everything is a win, and the equivalence-aware classifier says so: a genuine null
+(RMSNorm vs LayerNorm), an unresolved case (untying), and one component that slightly
+*hurts* quality at this scale (z-loss, a stability regularizer that barely earns its keep
+on a small short run). A ten-run power pilot first showed the noise floor is low enough
+that a representative effect is ~4x the seed spread, so three seeds resolve effects down
+to ~0.01 nats.
+
+**Not measured, and not claimed.** Whether any of this **transfers**. These are 17M
+numbers; rank transfer, selection regret, and effect reversal across scale are the whole
+point and remain unfunded — the 98M tier is ~85% of the study cost. z-loss hurting at 17M
+is a prime candidate to reverse at 98M, where stability regularization matters more, and
+that reversal is precisely the "cheap experiment lies to you" result the project exists
+to detect. A single-scale ablation feels like the finding and is not.
 
 One measurement lesson already earned: on TinyShakespeare, vocabulary utilization
 appeared to collapse at 16K (27.8%). That was an artifact of a 150 KB evaluation slice
@@ -144,11 +164,13 @@ never the best-looking checkpoint.
 
 ## Where this is going
 
-The real study runs on FineWeb-Edu at roughly 17M, 33M and 98M parameters with 3 seeds
-each: 63 runs, about 24 GPU-hours, near $95 on an H100, priced from the FLOP accounting
-before anything is launched. The 98M tier is about 87% of that compute. Interaction
-cells are deferred until the balanced three-seed grid at the largest tier is funded,
-because buying breadth before the main grid can resolve anything is a bad trade.
+The transfer study extends the S-tier grid to 33M and 98M with three seeds each. Cost is
+now *measured*, not estimated: small models reach only 10-28% of an H100's peak, so the
+full 63-run grid is about 90 GPU-hours, ~$356 on an H100 (the 98M tier is ~85% of it),
+several times the naive FLOP estimate. The S tier fits a hobby budget; M and L need a
+compute grant. Interaction cells are deferred until the balanced three-seed grid at the
+largest tier is funded, because buying breadth before the main grid can resolve anything
+is a bad trade.
 
 The analysis is already written, deliberately: paired per-seed effects, selection
 regret, selection probability by seed resampling, descriptive rank correlation (flagged
@@ -172,8 +194,8 @@ spending gate has to pass before any large run.
 - Design and methodology: [DESIGN.md](DESIGN.md)
 - Milestones, protocol, and gates: [ROADMAP.md](ROADMAP.md)
 
-Status: pipeline built and CPU-verified; protocol hardened; corpus pinned; tokenizer
-frozen; runner, analysis and Modal integration in place. The remaining prerequisite is
-tokenizing the corpus once, sized for the largest tier that will ever run, because the
-stream permutation depends on the block count and appending data later would break the
-nested prefixes. Then the power pilot, then the spending gate. **No GPU runs yet.**
+Status: pipeline built and CPU-verified; protocol hardened; corpus pinned and prepared
+(2.24B train tokens on Modal); tokenizer frozen; runner, analysis and Modal integration
+in place. The power pilot and the full S-tier ablation have run on FineWeb-Edu (real
+results above). M and L are unfunded — they are ~90% of the cost and need a compute
+grant. Everything runs detached on Modal, so multi-hour jobs survive client disconnects.
