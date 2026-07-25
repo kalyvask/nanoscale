@@ -6,6 +6,42 @@ before any large run. Phases map to CS336 lectures/assignments.
 
 Legend: `[ ]` todo, `[~]` in progress, `[x]` done.
 
+---
+
+## >>> RESUME AUGUST 1, 2026 (more Modal credits) <<<
+
+Paused 2026-07-24 at ~$25 of a $30 Modal balance. S tier is done; **M and L are the
+remaining work** and need the extra credits. Everything below is ready to run.
+
+**Already in place (no need to redo):**
+- Corpus prepared on the Modal Volume `nanoscale-vol` as `fineweb_edu` (2.24B train
+  tokens, dataset hash `612fb16f18c040e3`). Volumes persist; do not re-prepare.
+- Frozen tokenizer committed: `artifacts/tokenizer_fineweb_16384.json` (hash
+  `03be9e0e34d77bec`).
+- Protocol locked: `protocol_hash = e69a251d24214320`, batch 128, D/N=20.
+- S-tier result in `analysis/s_tier/`.
+
+**Resume steps:**
+1. Check the Modal balance and re-auth if needed: `modal profile current`.
+2. Redeploy (picks up any code changes): `modal deploy scripts/modal_run.py`.
+3. Dry-run the cost first: `python scripts/modal_run.py --action study --scales M --dry-run`.
+   Measured cost at batch 128: **M tier ~$44, L tier ~$296** (L is ~85% of the total).
+4. Run M (21 runs): `python scripts/modal_run.py --action study --scales M --batch-size 7 --tag m_tier --execute`
+   then block/poll on `m_tier`. If budget allows, run L the same way (`--scales L`,
+   consider `--batch-size 3` and possibly a smaller model batch for L's memory).
+5. Pool results and build the transfer report:
+   `python scripts/make_report.py` (or pool the saved jsons like the S-tier analysis did).
+   This produces rank correlation, selection regret, and the grows/holds/reverses/
+   unresolved verdicts across S/M/L.
+6. **Watch the z-loss hypothesis:** at S, z-loss *hurt* quality (-0.0155). If it flips
+   sign at M or L, that is the headline "cheap experiment lies to you" result.
+
+Gotchas learned the hard way: run everything **detached** (spawn, not `app.run()`) so
+laptop sleep can't kill it; keep the mount at `/root/repo`; don't run `git push` during a
+Modal build (it corrupts the snapshot); use `PYTHONUTF8=1` on Windows for Modal's output.
+
+---
+
 **Progress (2026-07-23):** M0-M5 built, CPU gate passed, M6a protocol-validity change
 set landed, and Phase 1 of M6 is complete apart from corpus preparation. 206 tests
 green. Corpus pinned (FineWeb-Edu `87f09149`, 4 shards), tokenizer frozen (vocab 16,384,
