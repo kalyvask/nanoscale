@@ -230,6 +230,8 @@ def main() -> None:
     ap.add_argument("--scales", default=None, help="comma list, e.g. S or S,M (study only)")
     ap.add_argument("--recipes", default=None,
                     help="comma list of recipe ids to run (study only); omit for all")
+    ap.add_argument("--max-seeds", type=int, default=None,
+                    help="run only the first N seed indices (budget control)")
     ap.add_argument("--tag", default=None, help="override the saved-call tag")
     ap.add_argument("--execute", action="store_true",
                     help="actually spend compute (otherwise plan only)")
@@ -262,6 +264,8 @@ def main() -> None:
         if args.recipes:
             keep = set(args.recipes.split(","))
             runs = [r for r in runs if r.recipe in keep]
+        if args.max_seeds is not None:
+            runs = [r for r in runs if r.seed_index < args.max_seeds]
         bs = args.batch_size
         batches = [runs[i:i + bs] for i in range(0, len(runs), bs)]
         print(f"protocol_hash: {phash}; {len(runs)} runs in {len(batches)} batches")
