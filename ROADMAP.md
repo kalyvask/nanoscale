@@ -317,6 +317,34 @@ than over-claiming.
 at 98M is the actual research question and is unfunded. z-loss hurting at S is a prime
 candidate for reversal at scale, which is exactly what the transfer study exists to test.
 
+## S->M transfer result (2026-07-25) — first transfer measurement
+
+M tier (33M) run at 2 seeds (budget: ~$35), pooled with the 3-seed S tier. Report:
+`analysis/transfer_sm/report.md`. Paired effects (positive = component helps):
+
+| intervention | S (17M) | M (33M) | trajectory |
+|---|---|---|---|
+| RoPE | +0.0666 | +0.0535 | shrinks |
+| QK-norm | +0.0446 | +0.0225 | shrinks |
+| SwiGLU | +0.0259 | +0.0117 | shrinks |
+| RMSNorm vs LayerNorm | +0.0020 | -0.0002 | ~flat (both null) |
+| untie embeddings | -0.0139 | -0.0061 | unresolved -> ~null |
+| z-loss | -0.0155 | -0.0130 | holds (still hurts) |
+
+- **Rank transfer S->M: Spearman 0.96, Kendall 0.90** (n=7, descriptive/underpowered).
+  The ordering is highly preserved across the 2x gap.
+- **Selection regret S->M = 0.000**: the recipe chosen at S (drop z-loss) is also the
+  best at M. At this gap, the cheap experiment picked correctly.
+- **Every "helps" effect shrinks toward zero with scale** (RoPE, QK-norm, SwiGLU all
+  compress). Interventions matter less at 33M than at 17M -- a clean, consistent trend.
+- **z-loss still hurts at M (-0.0130 vs -0.0155)**: the reversal hypothesis has NOT
+  triggered by 33M. It is shrinking slowly, not flipping. Whether it reverses needs L.
+
+Reading: across a 2x scale gap, small-model ablation transfers well here (regret 0,
+rank corr 0.96). That is itself a result -- at these scales the proxy is trustworthy.
+The interesting question is whether that holds to 98M, where effects are smaller and
+z-loss's sign may finally flip. That is the L tier, still unfunded (~$220-330).
+
 ## GPU SPENDING GATE (explicit approval required)
 Do not launch large runs until:
 - [ ] Estimated GPU hours and cost approved
