@@ -10,8 +10,9 @@ Legend: `[ ]` todo, `[~]` in progress, `[x]` done.
 
 ## >>> RESUME AUGUST 1, 2026 (more Modal credits) <<<
 
-Paused 2026-07-24 at ~$25 of a $30 Modal balance. S tier is done; **M and L are the
-remaining work** and need the extra credits. Everything below is ready to run.
+Updated 2026-07-25: S tier and **M tier (2 seeds)** are now done; S->M transfer measured
+(Spearman 0.96, regret 0, z-loss not yet reversed). **Only the L tier (98M) remains** and
+needs a real grant (~$220-330). Everything below is ready to run.
 
 **Already in place (no need to redo):**
 - Corpus prepared on the Modal Volume `nanoscale-vol` as `fineweb_edu` (2.24B train
@@ -26,15 +27,16 @@ remaining work** and need the extra credits. Everything below is ready to run.
 2. Redeploy (picks up any code changes): `modal deploy scripts/modal_run.py`.
 3. Dry-run the cost first: `python scripts/modal_run.py --action study --scales M --dry-run`.
    Measured cost at batch 128: **M tier ~$44, L tier ~$296** (L is ~85% of the total).
-4. Run M (21 runs): `python scripts/modal_run.py --action study --scales M --batch-size 7 --tag m_tier --execute`
-   then block/poll on `m_tier`. If budget allows, run L the same way (`--scales L`,
-   consider `--batch-size 3` and possibly a smaller model batch for L's memory).
-5. Pool results and build the transfer report:
-   `python scripts/make_report.py` (or pool the saved jsons like the S-tier analysis did).
-   This produces rank correlation, selection regret, and the grows/holds/reverses/
-   unresolved verdicts across S/M/L.
-6. **Watch the z-loss hypothesis:** at S, z-loss *hurt* quality (-0.0155). If it flips
-   sign at M or L, that is the headline "cheap experiment lies to you" result.
+4. Run L (`--scales L`, `--tag l_tier`, `--execute`). Use `--batch-size 3` (L is ~4h/run
+   and ~85% of the study cost). Consider a smaller model batch if L OOMs at batch 128,
+   and 3 seeds if the grant allows (`--max-seeds 3`); M is currently only 2 seeds, so add
+   M seed 1339 too for a balanced 3-seed S/M/L comparison. Then block/poll.
+5. Pool S + M + L and build the transfer report (pool the saved jsons as the S->M
+   analysis did, or `python scripts/make_report.py`): rank correlation, selection regret,
+   and grows/holds/reverses/unresolved verdicts across all three scales.
+6. **Watch the z-loss hypothesis:** z-loss hurt quality at S (-0.0155) and still hurts at
+   M (-0.0130) -- shrinking, not reversed. If it flips sign at L (98M), that is the
+   headline "cheap experiment lies to you" result. If it stays negative, transfer held.
 
 Gotchas learned the hard way: run everything **detached** (spawn, not `app.run()`) so
 laptop sleep can't kill it; keep the mount at `/root/repo`; don't run `git push` during a

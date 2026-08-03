@@ -144,12 +144,30 @@ on a small short run). A ten-run power pilot first showed the noise floor is low
 that a representative effect is ~4x the seed spread, so three seeds resolve effects down
 to ~0.01 nats.
 
-**Not measured, and not claimed.** Whether any of this **transfers**. These are 17M
-numbers; rank transfer, selection regret, and effect reversal across scale are the whole
-point and remain unfunded — the 98M tier is ~85% of the study cost. z-loss hurting at 17M
-is a prime candidate to reverse at 98M, where stability regularization matters more, and
-that reversal is precisely the "cheap experiment lies to you" result the project exists
-to detect. A single-scale ablation feels like the finding and is not.
+**Measured — the first transfer result (S->M).** The M tier (33M, 2 seeds) pooled with
+the S tier (`analysis/transfer_sm/report.md`). Across the 2x gap the answer is that the
+cheap experiment transfers well:
+
+| intervention | S (17M) | M (33M) | trajectory |
+|---|---|---|---|
+| RoPE | +0.0666 | +0.0535 | shrinks |
+| QK-norm | +0.0446 | +0.0225 | shrinks |
+| SwiGLU | +0.0259 | +0.0117 | shrinks |
+| RMSNorm vs LayerNorm | +0.0020 | -0.0002 | null -> null |
+| untie embeddings | -0.0139 | -0.0061 | unresolved |
+| z-loss | -0.0155 | -0.0130 | still hurts |
+
+Rank transfer S->M is **Spearman 0.96 / Kendall 0.90** (n=7, descriptive), and selection
+regret is **0.000** — the recipe you would pick at 17M is also the best at 33M. Every
+helping effect shrinks toward zero as the model grows.
+
+**Not measured, and not claimed.** Whether this holds to the interesting scale. The gap
+so far is only 2x (both small models); the real question is small->large (98M+), which is
+~85% of the study cost and unfunded. z-loss still *hurts* at 33M (it has not reversed,
+only shrunk from -0.0155 to -0.0130) — whether it flips at 98M, where stability
+regularization matters more, is the "cheap experiment lies to you" result the project
+exists to detect, and it needs the L tier. Strong transfer across 2x is not proof of
+transfer across 6x.
 
 One measurement lesson already earned: on TinyShakespeare, vocabulary utilization
 appeared to collapse at 16K (27.8%). That was an artifact of a 150 KB evaluation slice
@@ -195,7 +213,8 @@ spending gate has to pass before any large run.
 - Milestones, protocol, and gates: [ROADMAP.md](ROADMAP.md)
 
 Status: pipeline built and CPU-verified; protocol hardened; corpus pinned and prepared
-(2.24B train tokens on Modal); tokenizer frozen; runner, analysis and Modal integration
-in place. The power pilot and the full S-tier ablation have run on FineWeb-Edu (real
-results above). M and L are unfunded — they are ~90% of the cost and need a compute
-grant. Everything runs detached on Modal, so multi-hour jobs survive client disconnects.
+(2.24B train tokens on Modal); tokenizer frozen. The pilot, the S tier (3 seeds) and the
+M tier (2 seeds) have run on FineWeb-Edu, giving the first S->M transfer result above
+(~$60 spent so far). Only the L tier (98M) remains — it is ~85% of the study cost and
+needs a compute grant. Everything runs detached on Modal, so multi-hour jobs survive
+client disconnects.
